@@ -1,0 +1,12 @@
+﻿src/index.ts(12,3): error TS6133: 'setDoc' is declared but its value is never read.
+src/index.ts(47,11): error TS6133: 'adminDoc' is declared but its value is never read.
+src/index.ts(142,29): error TS7030: Not all code paths return a value.
+src/index.ts(258,35): error TS7030: Not all code paths return a value.
+src/index.ts(322,46): error TS7030: Not all code paths return a value.
+src/index.ts(344,43): error TS7030: Not all code paths return a value.
+src/index.ts(406,13): error TS6133: 'className' is declared but its value is never read.
+src/index.ts(495,36): error TS7030: Not all code paths return a value.
+src/index.ts(647,27): error TS7030: Not all code paths return a value.
+src/index.ts(677,33): error TS7030: Not all code paths return a value.
+src/index.ts(699,30): error TS7030: Not all code paths return a value.
+src/index.ts(823,35): error TS7030: Not all code paths return a value.
