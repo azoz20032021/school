@@ -14,10 +14,31 @@ import {
   writeBatch,
   limit
 } from "firebase/firestore";
-import { db } from "../src/lib/firebase";
+import { initializeApp } from "firebase/app";
+import { getFirestore } from "firebase/firestore";
+
+const firebaseConfig = {
+    apiKey: "AIzaSyBmgX4oKMpAQYbkuOha2zv1idpd5qQocak",
+    authDomain: "mangment-school.firebaseapp.com",
+    projectId: "mangment-school",
+    storageBucket: "mangment-school.firebasestorage.app",
+    messagingSenderId: "824062335814",
+    appId: "1:824062335814:web:10e971ee4d76d8ed4aa347"
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
 
 const app = express();
 app.use(express.json());
+
+// Vercel path normalizer
+app.use((req, res, next) => {
+  if (!req.url.startsWith('/api')) {
+    req.url = '/api' + (req.url === '/' ? '' : req.url);
+  }
+  next();
+});
 
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.url}`);
