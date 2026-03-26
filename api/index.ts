@@ -14,7 +14,7 @@ import {
   writeBatch,
   limit
 } from "firebase/firestore";
-import { db } from "./firebase";
+import { db } from "../src/lib/firebase";
 
 const app = express();
 app.use(express.json());
