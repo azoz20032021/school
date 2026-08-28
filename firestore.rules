@@ -14,9 +14,12 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // The API's service account. Not a secret — it only grants access when
+    // paired with the password held in FIREBASE_SERVER_PASSWORD.
+    // Verify with: curl https://<your-site>/api/health  -> "server_uid"
     function isServer() {
       return request.auth != null
-        && request.auth.uid == 'REPLACE_WITH_SERVER_ACCOUNT_UID';
+        && request.auth.uid == 'KvZOUSA8X5OXhoiFPX8mmQVl7363';
     }
 
     match /users/{document=**}          { allow read, write: if isServer(); }
