@@ -1,0 +1,43 @@
+rules_version = '2';
+
+// Firestore security rules.
+//
+// No client ever touches Firestore directly. All access goes through the
+// Express API in `backend/`, which signs in as a single dedicated service
+// account and enforces roles in application code.
+//
+// The web config shipped to the browser is public by design; these rules are
+// what actually protect the data.
+//
+// Setup instructions: see DEPLOYMENT.md → "إقفال قاعدة البيانات".
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isServer() {
+      return request.auth != null
+        && request.auth.uid == 'REPLACE_WITH_SERVER_ACCOUNT_UID';
+    }
+
+    match /users/{document=**}          { allow read, write: if isServer(); }
+    match /classes/{document=**}        { allow read, write: if isServer(); }
+    match /enrollments/{document=**}    { allow read, write: if isServer(); }
+    match /attendance/{document=**}     { allow read, write: if isServer(); }
+    match /grades/{document=**}         { allow read, write: if isServer(); }
+    match /notifications/{document=**}  { allow read, write: if isServer(); }
+    match /subjects/{document=**}       { allow read, write: if isServer(); }
+    match /schedules/{document=**}      { allow read, write: if isServer(); }
+    match /valid_uids/{document=**}     { allow read, write: if isServer(); }
+    match /registrations/{document=**}  { allow read, write: if isServer(); }
+    match /invoices/{document=**}       { allow read, write: if isServer(); }
+    match /payments/{document=**}       { allow read, write: if isServer(); }
+    match /behavior_notes/{document=**} { allow read, write: if isServer(); }
+    match /audit_logs/{document=**}     { allow read, write: if isServer(); }
+    match /counters/{document=**}       { allow read, write: if isServer(); }
+
+    // Anything not listed above is denied.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

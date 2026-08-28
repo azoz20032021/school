@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Clock, User, Trash2, Plus, Calendar } from 'lucide-react';
 import { UserData, ClassData } from '../types';
+import { api, ApiError } from '../lib/api';
 
 interface ScheduleProps {
     user: UserData;
@@ -27,51 +28,63 @@ export const Schedule: React.FC<ScheduleProps> = ({ user }) => {
 
     const fetchSchedules = async (classId: string) => {
         if (!classId) return;
-        const res = await fetch(`/api/schedules/${classId}`);
-        const data = await res.json();
-        setSchedules(data);
+        try {
+            setSchedules(await api.get<any[]>(`/api/schedules/${classId}`));
+        } catch {
+            setSchedules([]);
+        }
     };
 
     useEffect(() => {
         if (user.role === 'admin' || user.role === 'assistant_admin') {
-            fetch('/api/classes').then(res => res.json()).then(data => {
+            api.get<ClassData[]>('/api/classes').then(data => {
                 setClasses(data);
                 if (data.length > 0) {
                     setSelectedClassId(data[0].id);
                     fetchSchedules(data[0].id);
                 }
-            });
-            fetch('/api/admin/teachers').then(res => res.json()).then(data => {
+            }).catch(() => setClasses([]));
+
+            api.get<any[]>('/api/admin/teachers').then(data => {
                 setTeachers(data);
                 if (data.length > 0) {
                     setNewSession(prev => ({ ...prev, teacher: data[0].name }));
                 }
-            });
-        } else if (user.role === 'student') {
-            fetch(`/api/student/classes/${user.id}`).then(res => res.json()).then(data => {
+            }).catch(() => setTeachers([]));
+        } else {
+            // Teachers and students both read the timetable of the class they belong to.
+            const endpoint = user.role === 'teacher'
+                ? `/api/teacher/classes/${user.id}`
+                : `/api/student/classes/${user.id}`;
+            api.get<ClassData[]>(endpoint).then(data => {
+                setClasses(data);
                 if (data.length > 0) {
                     setSelectedClassId(data[0].id);
                     fetchSchedules(data[0].id);
                 }
-            });
+            }).catch(() => setClasses([]));
         }
     }, [user.id, user.role]);
 
     const handleAddSession = async (e: React.FormEvent) => {
         e.preventDefault();
-        await fetch('/api/admin/schedules', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...newSession, class_id: selectedClassId }),
-        });
-        setShowAdd(false);
-        fetchSchedules(selectedClassId);
+        try {
+            await api.post('/api/admin/schedules', { ...newSession, class_id: selectedClassId });
+            setShowAdd(false);
+            fetchSchedules(selectedClassId);
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'تعذر إضافة الحصة');
+        }
     };
 
     const handleDeleteSession = async (id: string) => {
         if (confirm('حذف هذه الحصة من الجدول؟')) {
-            await fetch(`/api/admin/schedules/${id}`, { method: 'DELETE' });
-            fetchSchedules(selectedClassId);
+            try {
+                await api.del(`/api/admin/schedules/${id}`);
+                fetchSchedules(selectedClassId);
+            } catch (err) {
+                alert(err instanceof ApiError ? err.message : 'تعذر حذف الحصة');
+            }
         }
     };
 

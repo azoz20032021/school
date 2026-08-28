@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, ChevronRight, ArrowRight } from 'lucide-react';
 import { UserData, ClassData } from '../../types';
+import { api } from '../../lib/api';
 
 interface StudentDashboardProps {
     user: UserData;
@@ -12,8 +13,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user }) => {
     const [selectedClass, setSelectedClass] = useState<ClassData | null>(null);
 
     const fetchStudentData = () => {
-        fetch(`/api/student/${user.id}/attendance`).then(res => res.json()).then(setAttendance);
-        fetch(`/api/student/classes/${user.id}`).then(res => res.json()).then(setClasses);
+        api.get<any[]>(`/api/student/${user.id}/attendance`).then(setAttendance).catch(() => setAttendance([]));
+        api.get<ClassData[]>(`/api/student/classes/${user.id}`).then(setClasses).catch(() => setClasses([]));
     };
 
     useEffect(() => {

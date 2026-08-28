@@ -1,0 +1,151 @@
+import express, { type NextFunction, type Request, type Response } from "express";
+import { addDoc, getDocs, limit as fsLimit, query, serverTimestamp, where } from "firebase/firestore";
+import { ensureDbAuth, subjectsRef, usersRef } from "./lib/db";
+import { attachUser, hashPassword, rateLimit } from "./lib/auth";
+import { HttpError } from "./lib/http";
+import { ValidationError } from "./lib/validate";
+
+import authRoutes from "./routes/auth.routes";
+import registrationRoutes from "./routes/registrations.routes";
+import adminRoutes from "./routes/admin.routes";
+import classesRoutes from "./routes/classes.routes";
+import attendanceRoutes from "./routes/attendance.routes";
+import gradesRoutes from "./routes/grades.routes";
+import notificationsRoutes from "./routes/notifications.routes";
+import catalogRoutes from "./routes/catalog.routes";
+import paymentsRoutes from "./routes/payments.routes";
+import behaviorRoutes from "./routes/behavior.routes";
+import reportsRoutes from "./routes/reports.routes";
+
+const app = express();
+
+app.disable("x-powered-by");
+app.set("trust proxy", 1);
+
+// A school record is never megabytes; cap the body so a large POST cannot tie
+// up a serverless instance.
+app.use(express.json({ limit: "128kb" }));
+
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  // API responses must never be cached by a shared proxy — they are per-user.
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
+
+if (process.env.NODE_ENV !== "production") {
+  app.use((req, _res, next) => {
+    console.log(`${req.method} ${req.url}`);
+    next();
+  });
+}
+
+app.use(attachUser);
+
+// Make sure the Firestore service-account sign-in has completed before any
+// route touches the database.
+app.use((_req, res, next) => {
+  ensureDbAuth().then(
+    () => next(),
+    () => res.status(503).json({ error: "تعذر الاتصال بقاعدة البيانات، يرجى المحاولة بعد قليل" })
+  );
+});
+
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true, time: new Date().toISOString() });
+});
+
+/**
+ * First-run bootstrap.
+ *
+ * Replaces the old module-level seeding block, which fired two Firestore
+ * queries on every cold start and created an admin with a published default
+ * password. This endpoint only works while no admin exists.
+ */
+app.post(
+  "/api/setup",
+  rateLimit({ windowMs: 60 * 60 * 1000, max: 5, keyPrefix: "setup" }),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const existingAdmin = await getDocs(query(usersRef, where("role", "==", "admin"), fsLimit(1)));
+      if (!existingAdmin.empty) {
+        throw new HttpError(409, "تم تهيئة النظام مسبقاً. لا يمكن إنشاء مدير جديد من هنا.");
+      }
+
+      const setupToken = process.env.SETUP_TOKEN;
+      if (setupToken && req.body?.setup_token !== setupToken) {
+        throw new HttpError(403, "رمز التهيئة غير صحيح");
+      }
+
+      const name = String(req.body?.name || "").trim() || "مدير النظام";
+      const uid = String(req.body?.uid || "").trim();
+      const password = String(req.body?.password || "");
+      if (uid.length < 3) throw new HttpError(400, "الرقم التعريفي للمدير مطلوب");
+      if (password.length < 8) throw new HttpError(400, "كلمة المرور يجب أن تكون 8 أحرف على الأقل");
+
+      const created = await addDoc(usersRef, {
+        name,
+        username: uid,
+        uid,
+        password: hashPassword(password),
+        role: "admin",
+        status: "active",
+        createdAt: serverTimestamp(),
+      });
+
+      const subjects = await getDocs(query(subjectsRef, fsLimit(1)));
+      if (subjects.empty) {
+        const defaults = [
+          { name: "الرياضيات", color: "bg-blue-500" },
+          { name: "اللغة العربية", color: "bg-emerald-500" },
+          { name: "اللغة الإنجليزية", color: "bg-orange-500" },
+          { name: "الأحياء", color: "bg-rose-500" },
+          { name: "الفيزياء", color: "bg-cyan-500" },
+          { name: "الكيمياء", color: "bg-purple-500" },
+          { name: "الرياضة", color: "bg-indigo-500" },
+        ];
+        await Promise.all(defaults.map((s) => addDoc(subjectsRef, { ...s, createdAt: serverTimestamp() })));
+      }
+
+      res.status(201).json({ success: true, id: created.id, uid });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+app.use("/api", authRoutes);
+app.use("/api", registrationRoutes);
+app.use("/api", adminRoutes);
+app.use("/api", classesRoutes);
+app.use("/api", attendanceRoutes);
+app.use("/api", gradesRoutes);
+app.use("/api", notificationsRoutes);
+app.use("/api", catalogRoutes);
+app.use("/api", paymentsRoutes);
+app.use("/api", behaviorRoutes);
+app.use("/api", reportsRoutes);
+
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "المسار المطلوب غير موجود" });
+});
+
+// Central error handler. Internal details stay in the logs; the client gets an
+// Arabic message and nothing about the stack or the database.
+app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+  const status = err instanceof ValidationError ? 400 : err?.status || err?.statusCode || 500;
+
+  if (status >= 500) {
+    console.error(`[error] ${req.method} ${req.url}`, err);
+  }
+
+  const message =
+    status >= 500 ? "حدث خطأ في الخادم، يرجى المحاولة لاحقاً" : err?.message || "طلب غير صالح";
+
+  res.status(status).json({ error: message });
+});
+
+export default app;

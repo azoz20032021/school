@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GraduationCap, ChevronRight, ArrowRight, Plus, Trash2, Edit2, Users, Printer } from 'lucide-react';
 import { UserData, ClassData } from '../types';
+import { api, ApiError } from '../lib/api';
 
 interface GradesManagementProps {
     user: UserData;
@@ -21,19 +22,21 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
 
     const fetchData = async () => {
         const url = (user.role === 'admin' || user.role === 'assistant_admin') ? '/api/classes' : `/api/teacher/classes/${user.id}`;
-        const res = await fetch(url);
-        const data = await res.json();
-        setClasses(data);
+        try {
+            setClasses(await api.get<ClassData[]>(url));
+        } catch {
+            setClasses([]);
+        }
     };
 
     useEffect(() => {
         fetchData();
-        fetch('/api/subjects').then(res => res.json()).then(data => {
+        api.get<any[]>('/api/subjects').then(data => {
             setSubjects(data);
             if ((user.role === 'admin' || user.role === 'assistant_admin') && data.length > 0) {
                 setNewGrade(prev => ({ ...prev, subject: data[0].name }));
             }
-        });
+        }).catch(() => setSubjects([]));
 
         if (user.role === 'teacher' && user.subjects && user.subjects.length > 0) {
             setNewGrade(prev => ({ ...prev, subject: user.subjects![0] }));
@@ -48,14 +51,17 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
 
     const handleSelectClass = async (c: ClassData) => {
         setSelectedClass(c);
-        const [studentsRes, gradesRes] = await Promise.all([
-            fetch(`/api/class/${c.id}/students`),
-            fetch(`/api/class/${c.id}/grades`)
-        ]);
-        const studentsData = await studentsRes.json();
-        const gradesData = await gradesRes.json();
-        setClassStudents(studentsData);
-        setAllGrades(gradesData);
+        try {
+            const [studentsData, gradesData] = await Promise.all([
+                api.get<any[]>(`/api/class/${c.id}/students`),
+                api.get<any[]>(`/api/class/${c.id}/grades`)
+            ]);
+            setClassStudents(studentsData);
+            setAllGrades(gradesData);
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'تعذر تحميل بيانات الصف');
+            setSelectedClass(null);
+        }
     };
 
     const handlePrint = () => {
@@ -171,16 +177,15 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
                 status,
                 category: newGrade.category,
                 semester: newGrade.semester,
-                performed_by: user.id
             };
 
-            const res = await fetch(editingGradeId ? `/api/grades/${editingGradeId}` : '/api/grades', {
-                method: editingGradeId ? 'PUT' : 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (!res.ok) throw new Error('Failed to save grade');
+            // The acting user is taken from the session on the server; sending
+            // an id from here would just be a claim the server has to ignore.
+            if (editingGradeId) {
+                await api.put(`/api/grades/${editingGradeId}`, payload);
+            } else {
+                await api.post('/api/grades', payload);
+            }
 
             setShowAddGrade(null);
             setEditingGradeId(null);
@@ -188,8 +193,8 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
             setNewGrade({ subject: defaultSub, score: '', total: '100', category: 'يومي', semester: 'الفصل الأول' });
             alert(editingGradeId ? 'تم تحديث الدرجة بنجاح' : 'تمت إضافة الدرجة بنجاح');
             handleSelectClass(selectedClass);
-        } catch (error: any) {
-            alert(`حدث خطأ أثناء حفظ الدرجة`);
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'حدث خطأ أثناء حفظ الدرجة');
         }
     };
 
@@ -207,12 +212,12 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
 
     const handleDeleteGrade = async (gradeId: string) => {
         if (confirm('هل أنت متأكد من حذف هذه الدرجة نهائياً؟ لا يمكن التراجع عن هذه الخطوة.')) {
-            await fetch(`/api/grades/${gradeId}`, {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ performed_by: user.id })
-            });
-            if (selectedClass) handleSelectClass(selectedClass);
+            try {
+                await api.del(`/api/grades/${gradeId}`);
+                if (selectedClass) handleSelectClass(selectedClass);
+            } catch (err) {
+                alert(err instanceof ApiError ? err.message : 'تعذر حذف الدرجة');
+            }
         }
     };
 

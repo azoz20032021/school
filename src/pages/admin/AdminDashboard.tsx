@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Users, BookOpen, Plus, ChevronRight, Trash2, ArrowRight, Printer, UserX } from 'lucide-react';
 import { ClassData, UserData } from '../../types';
 import { useAuth } from '../../context/AuthContext';
+import { api, ApiError } from '../../lib/api';
 
 
 
@@ -40,22 +41,34 @@ export const AdminDashboard: React.FC = () => {
     const [showUidManager, setShowUidManager] = useState(false);
     const [newCustomUid, setNewCustomUid] = useState('');
 
-    const fetchData = () => {
-        fetch('/api/classes').then(res => res.json()).then(data => {
-            setClasses(data);
-            if (viewingTeacher) {
-                // If modal is open, we don't need to do anything as it reads from 'classes'
-                // which is now updated.
-            }
-        });
-        fetch('/api/admin/students').then(res => res.json()).then(setStudents);
-        fetch('/api/admin/teachers').then(res => res.json()).then(setTeachers);
-        if (canManageTeachers) {
-            fetch('/api/admin/assistants').then(res => res.json()).then(setAssistants);
-        }
-        fetch('/api/subjects').then(res => res.json()).then(setAllSubjects);
-        fetch('/api/admin/absences/daily').then(res => res.json()).then(setDailyAbsences);
-        fetch('/api/admin/uids').then(res => res.json()).then(setValidUids);
+    /**
+     * One pass over every list the dashboard shows. Each request is independent,
+     * so they go out together and a single failure no longer leaves the whole
+     * dashboard blank - the panels that did load still render.
+     */
+    const fetchData = async () => {
+        const settle = <T,>(p: Promise<T>, fallback: T) => p.catch(() => fallback);
+
+        const [
+            classesData, studentsData, teachersData,
+            assistantsData, subjectsData, absencesData, uidsData,
+        ] = await Promise.all([
+            settle(api.get<ClassData[]>('/api/classes'), []),
+            settle(api.get<any[]>('/api/admin/students'), []),
+            settle(api.get<UserData[]>('/api/admin/teachers'), []),
+            canManageTeachers ? settle(api.get<any[]>('/api/admin/assistants'), []) : Promise.resolve([]),
+            settle(api.get<any[]>('/api/subjects'), []),
+            settle(api.get<any[]>('/api/admin/absences/daily'), []),
+            settle(api.get<any[]>('/api/admin/uids'), []),
+        ]);
+
+        setClasses(classesData);
+        setStudents(studentsData);
+        setTeachers(teachersData);
+        if (canManageTeachers) setAssistants(assistantsData);
+        setAllSubjects(subjectsData);
+        setDailyAbsences(absencesData);
+        setValidUids(uidsData);
     };
 
     useEffect(() => {
@@ -74,101 +87,121 @@ export const AdminDashboard: React.FC = () => {
             return { id: t?.id, name: t?.name };
         });
 
-        await fetch('/api/admin/classes', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+        try {
+            await api.post('/api/admin/classes', {
                 name: newClassName,
                 teachers: selectedTeachersData
-            }),
-        });
-        setNewClassName('');
-        setSelectedTeacherIds([]);
-        setShowAddClass(false);
-        fetchData();
+            });
+            setNewClassName('');
+            setSelectedTeacherIds([]);
+            setShowAddClass(false);
+            fetchData();
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'تعذر إضافة الصف');
+        }
     };
 
     const handleDeleteClass = async (id: number | string) => {
-        if (confirm('هل أنت متأكد من حذف هذا الصف؟')) {
-            await fetch(`/api/admin/classes/${id}`, { method: 'DELETE' });
-            fetchData();
+        if (confirm('هل أنت متأكد من حذف هذا الصف؟ سيتم حذف تسجيلات الطلاب وجدول الحصص المرتبطة به.')) {
+            try {
+                await api.del(`/api/admin/classes/${id}`);
+                fetchData();
+            } catch (err) {
+                alert(err instanceof ApiError ? err.message : 'تعذر حذف الصف');
+            }
         }
     };
 
     const handleSelectClass = async (c: ClassData) => {
         setSelectedClass(c);
-        const res = await fetch(`/api/class/${c.id}/students`);
-        const data = await res.json();
-        // data now includes: id, name, uid, absences
-        setClassStudents(data);
+        try {
+            // Includes id, name, uid, absences and outstanding balance.
+            setClassStudents(await api.get<any[]>(`/api/class/${c.id}/students`));
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'تعذر تحميل طلاب الصف');
+            setSelectedClass(null);
+        }
     };
 
     const handleAssignStudent = async (studentId: string, classId: string) => {
         if (!classId) return;
-        await fetch('/api/admin/enroll', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ student_id: studentId, class_id: classId }),
-        });
-        alert('تم تعيين الطالب للصف بنجاح');
-        fetchData();
+        try {
+            await api.post('/api/admin/enroll', { student_id: studentId, class_id: classId });
+            alert('تم تعيين الطالب للصف بنجاح');
+            fetchData();
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'تعذر تعيين الطالب للصف');
+        }
     };
 
     const handleDeleteStudent = async (id: string) => {
-        if (confirm('هل أنت متأكد من حذف هذا الطالب بشكل نهائي؟')) {
-            await fetch(`/api/admin/students/${id}`, { method: 'DELETE' });
-            fetchData();
+        if (confirm('هل أنت متأكد من حذف هذا الطالب بشكل نهائي؟ سيتم حذف تسجيلاته وإشعاراته أيضاً.')) {
+            try {
+                await api.del(`/api/admin/students/${id}`);
+                fetchData();
+            } catch (err) {
+                alert(err instanceof ApiError ? err.message : 'تعذر حذف الطالب');
+            }
         }
     };
 
     const handleAddStudent = async (e: React.FormEvent) => {
         e.preventDefault();
-        await fetch('/api/admin/students', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(newStudent),
-        });
-        setNewStudent({ name: '', username: '', password: '', uid: '' });
-        setShowAddStudent(false);
-        fetchData();
+        try {
+            await api.post('/api/admin/students', newStudent);
+            setNewStudent({ name: '', username: '', password: '', uid: '' });
+            setShowAddStudent(false);
+            fetchData();
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'تعذر إضافة الطالب');
+        }
     };
 
     const handleAddTeacher = async (e: React.FormEvent) => {
         e.preventDefault();
-        await fetch('/api/admin/teachers', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(newTeacher),
-        });
-        setNewTeacher({ name: '', username: '', password: '' });
-        setShowAddTeacher(false);
-        fetchData();
+        try {
+            await api.post('/api/admin/teachers', newTeacher);
+            setNewTeacher({ name: '', username: '', password: '' });
+            setShowAddTeacher(false);
+            fetchData();
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'تعذر إضافة المعلم');
+        }
     };
 
     const handleDeleteTeacher = async (id: string) => {
         if (confirm('هل أنت متأكد من حذف هذا المعلم؟ سيؤدي ذلك لحذفه من كافة الفصول المعين عليها أيضاً.')) {
-            await fetch(`/api/admin/teachers/${id}`, { method: 'DELETE' });
-            setViewingTeacher(null);
-            fetchData();
+            try {
+                await api.del(`/api/admin/teachers/${id}`);
+                setViewingTeacher(null);
+                fetchData();
+            } catch (err) {
+                alert(err instanceof ApiError ? err.message : 'تعذر حذف المعلم');
+            }
         }
     };
 
     const handleAddAssistant = async (e: React.FormEvent) => {
         e.preventDefault();
-        await fetch('/api/admin/assistants', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(newAssistant),
-        });
-        setNewAssistant({ name: '', username: '', password: '' });
-        setShowAddAssistant(false);
-        fetchData();
+        try {
+            await api.post('/api/admin/assistants', newAssistant);
+            setNewAssistant({ name: '', username: '', password: '' });
+            setShowAddAssistant(false);
+            fetchData();
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'تعذر إضافة المساعد');
+        }
     };
 
     const handleDeleteAssistant = async (id: string) => {
         if (confirm('هل أنت متأكد من حذف هذا المساعد؟')) {
-            await fetch(`/api/admin/teachers/${id}`, { method: 'DELETE' }); // Teachers and assistants share the deletion endpoint as it's just 'users'
-            fetchData();
+            try {
+                // Teachers and assistants share the endpoint - both are just users.
+                await api.del(`/api/admin/teachers/${id}`);
+                fetchData();
+            } catch (err) {
+                alert(err instanceof ApiError ? err.message : 'تعذر حذف المساعد');
+            }
         }
     };
 
@@ -201,17 +234,12 @@ export const AdminDashboard: React.FC = () => {
             }
         }
 
-        const res = await fetch(`/api/admin/classes/${classId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                teachers: updatedTeachers
-            })
-        });
-
-        if (res.ok) {
+        try {
+            await api.put(`/api/admin/classes/${classId}`, { teachers: updatedTeachers });
             alert(teacherId ? 'تم تحديث تعيين المعلمين بنجاح' : 'تمت إزالة المعلم من الصف');
             fetchData();
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'تعذر تحديث تعيين المعلمين');
         }
     };
 
@@ -227,21 +255,17 @@ export const AdminDashboard: React.FC = () => {
             newSubjects = [...currentSubjects, subject];
         }
 
-        const res = await fetch(`/api/admin/teachers/${teacherId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ subjects: newSubjects })
-        });
-
-        if (res.ok) {
-            // Update local state for immediate feedback
-            const updatedTeachers = teachers.map(t =>
+        try {
+            await api.put(`/api/admin/teachers/${teacherId}`, { subjects: newSubjects });
+            // Update local state for immediate feedback.
+            setTeachers(teachers.map(t =>
                 t.id === teacherId ? { ...t, subjects: newSubjects } : t
-            );
-            setTeachers(updatedTeachers);
+            ));
             if (viewingTeacher && viewingTeacher.id === teacherId) {
                 setViewingTeacher({ ...viewingTeacher, subjects: newSubjects });
             }
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'تعذر تحديث مواد المعلم');
         }
     };
 
@@ -249,59 +273,51 @@ export const AdminDashboard: React.FC = () => {
         e.preventDefault();
         if (!showBroadcast || !broadcastMsg.message) return;
 
-        const res = await fetch('/api/admin/broadcast', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+        try {
+            const result = await api.post<{ count: number }>('/api/admin/broadcast', {
                 title: broadcastMsg.title,
                 message: broadcastMsg.message,
                 classId: showBroadcast.target === 'class' ? showBroadcast.id : undefined,
                 studentId: showBroadcast.target === 'student' ? showBroadcast.studentId : undefined
-            })
-        });
-
-        if (res.ok) {
-            alert('تم إرسال الرسالة لجميع الطلاب المستهدفين بنجاح');
+            });
+            alert(`تم إرسال الإشعار إلى ${result.count} طالب`);
             setBroadcastMsg({ title: '', message: '' });
             setShowBroadcast(null);
-        } else {
-            alert('فشل إرسال الرسالة');
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'فشل إرسال الرسالة');
         }
     };
 
     const handleGenerateUids = async () => {
         if (!confirm('هل أنت متأكد من توليد 10 UIDs جديدة؟')) return;
-        const res = await fetch('/api/admin/uids/generate', { method: 'POST' });
-        if (res.ok) {
+        try {
+            await api.post('/api/admin/uids/generate', { count: 10 });
             alert('تم توليد 10 UIDs بنجاح');
             fetchData();
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'تعذر توليد الأرقام');
         }
     };
 
     const handleDeleteUid = async (id: string, e: React.MouseEvent) => {
         e.stopPropagation();
         if (!confirm('هل أنت متأكد من حذف هذا الـ UID؟')) return;
-        const res = await fetch(`/api/admin/uids/${id}`, { method: 'DELETE' });
-        if (res.ok) {
+        try {
+            await api.del(`/api/admin/uids/${id}`);
             fetchData();
-        } else {
-            alert('فشل حذف الـ UID');
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'فشل حذف الـ UID');
         }
     };
 
     const handleAddCustomUid = async (e: React.FormEvent) => {
         e.preventDefault();
-        const res = await fetch('/api/admin/uids/add', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uid: newCustomUid }),
-        });
-        if (res.ok) {
+        try {
+            await api.post('/api/admin/uids/add', { uid: newCustomUid });
             setNewCustomUid('');
             fetchData();
-        } else {
-            const data = await res.json();
-            alert(data.error || 'فشل إضافة الـ UID');
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'فشل إضافة الـ UID');
         }
     };
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GraduationCap, Book, Calendar, Award, BookOpen, Star, TrendingUp } from 'lucide-react';
 import { UserData } from '../../types';
+import { api } from '../../lib/api';
 
 interface StudentGradesProps {
     user: UserData;
@@ -12,7 +13,7 @@ export const StudentGrades: React.FC<StudentGradesProps> = ({ user }) => {
     const [activeTab, setActiveTab] = useState('الكل');
 
     useEffect(() => {
-        fetch(`/api/class/grades/student/${user.id}`).then(res => res.json()).then(setGrades);
+        api.get<any[]>(`/api/class/grades/student/${user.id}`).then(setGrades).catch(() => setGrades([]));
     }, [user.id]);
 
     const semesters = ['الكل', 'الفصل الأول', 'الفصل الثاني', 'نصف السنة', 'السعي السنوي '];

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ClipboardList, PlusCircle, ArrowRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserData, ClassData } from '../../types';
+import { api, ApiError } from '../../lib/api';
 
 interface TeacherDashboardProps {
     user: UserData;
@@ -16,7 +17,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
     const [newGrade, setNewGrade] = useState({ subject: '', score: '', total: '100', category: 'يومي', semester: 'الفصل الأول' });
 
     useEffect(() => {
-        fetch(`/api/teacher/classes/${user.id}`).then(res => res.json()).then(setClasses);
+        api.get<ClassData[]>(`/api/teacher/classes/${user.id}`).then(setClasses).catch(() => setClasses([]));
     }, [user.id]);
 
     useEffect(() => {
@@ -35,12 +36,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
 
     const handleSelectClass = async (c: ClassData) => {
         setSelectedClass(c);
-        const res = await fetch(`/api/class/${c.id}/students`);
-        const data = await res.json();
-        setStudents(data);
-        const initialAttendance: Record<string, string> = {};
-        data.forEach((s: any) => initialAttendance[s.id] = 'present');
-        setAttendance(initialAttendance);
+        try {
+            const data = await api.get<any[]>(`/api/class/${c.id}/students`);
+            setStudents(data);
+            const initialAttendance: Record<string, string> = {};
+            data.forEach((s: any) => initialAttendance[s.id] = 'present');
+            setAttendance(initialAttendance);
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'تعذر تحميل قائمة الطلاب');
+            setSelectedClass(null);
+        }
     };
 
     const submitAttendance = async () => {
@@ -49,17 +54,17 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
             studentId,
             status
         }));
-        await fetch('/api/attendance', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+        try {
+            await api.post('/api/attendance', {
                 classId: selectedClass.id,
                 date: new Date().toISOString().split('T')[0],
                 attendanceData
-            })
-        });
-        alert('تم تسجيل الحضور بنجاح');
-        setSelectedClass(null);
+            });
+            alert('تم تسجيل الحضور بنجاح');
+            setSelectedClass(null);
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'تعذر تسجيل الحضور');
+        }
     };
 
     const handleAddGradeSubmit = async (e: React.FormEvent) => {
@@ -85,28 +90,24 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
         else if (score < 90) status = 'جيد جداً';
 
         try {
-            const res = await fetch('/api/grades', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    student_id: showAddGrade.studentId,
-                    class_id: selectedClass.id,
-                    subject: newGrade.subject,
-                    score,
-                    status,
-                    category: newGrade.category,
-                    semester: newGrade.semester,
-                    performed_by: user.id
-                })
+            // `total` is required by the API — it was computed here but never sent,
+            // so every grade was saved against an undefined maximum.
+            await api.post('/api/grades', {
+                student_id: showAddGrade.studentId,
+                class_id: selectedClass.id,
+                subject: newGrade.subject,
+                score,
+                total,
+                status,
+                category: newGrade.category,
+                semester: newGrade.semester,
             });
-
-            if (!res.ok) throw new Error('Failed to save grade');
 
             setShowAddGrade(null);
             setNewGrade({ ...newGrade, score: '' });
             alert(`تمت إضافة الدرجة للطالب ${showAddGrade.name} بنجاح`);
-        } catch (error: any) {
-            alert(`حدث خطأ أثناء حفظ الدرجة`);
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'حدث خطأ أثناء حفظ الدرجة');
         }
     };
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Book, Plus, Trash2, ArrowRight, AlertCircle, Sparkles } from 'lucide-react';
 import { UserData } from '../types';
+import { api, ApiError } from '../lib/api';
 
 interface SubjectsProps {
     user: UserData;
@@ -15,43 +16,37 @@ export const Subjects: React.FC<SubjectsProps> = ({ user }) => {
     const [newSubjectName, setNewSubjectName] = useState('');
 
     const fetchSubjects = () => {
-        fetch('/api/subjects').then(res => res.json()).then(setSubjects);
+        api.get<any[]>('/api/subjects').then(setSubjects).catch(() => setSubjects([]));
     };
 
     useEffect(() => {
         fetchSubjects();
         if (user.role === 'student') {
-            fetch(`/api/class/grades/student/${user.id}`).then(res => res.json()).then(setGrades);
+            api.get<any[]>(`/api/class/grades/student/${user.id}`).then(setGrades).catch(() => setGrades([]));
         }
     }, [user.id, user.role]);
 
     const handleAddSubject = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            const res = await fetch('/api/admin/subjects', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newSubjectName }),
-            });
-            if (res.ok) {
-                setNewSubjectName('');
-                setShowAddSubject(false);
-                fetchSubjects();
-                alert('تمت إضافة المادة بنجاح');
-            } else {
-                const errorData = await res.json();
-                alert(`حدث خطأ: ${errorData.error || 'فشل إضافة المادة'}`);
-            }
-        } catch (error) {
-            console.error('Error adding subject:', error);
-            alert('حدث خطأ في الاتصال بالخادم');
+            await api.post('/api/admin/subjects', { name: newSubjectName });
+            setNewSubjectName('');
+            setShowAddSubject(false);
+            fetchSubjects();
+            alert('تمت إضافة المادة بنجاح');
+        } catch (err) {
+            alert(err instanceof ApiError ? err.message : 'حدث خطأ في الاتصال بالخادم');
         }
     };
 
     const handleDeleteSubject = async (id: string) => {
         if (confirm('هل أنت متأكد من حذف هذه المادة؟')) {
-            await fetch(`/api/admin/subjects/${id}`, { method: 'DELETE' });
-            fetchSubjects();
+            try {
+                await api.del(`/api/admin/subjects/${id}`);
+                fetchSubjects();
+            } catch (err) {
+                alert(err instanceof ApiError ? err.message : 'تعذر حذف المادة');
+            }
         }
     };
 
