@@ -1,0 +1,13 @@
+{
+  "//": "Server code runs under real Node ESM, which requires file extensions on relative imports. The base config uses `bundler` resolution for the Vite frontend, which tolerates extensionless paths — so a missing extension only surfaced once deployed. Checking the server with NodeNext catches it at `npm run lint` instead.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": false,
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["api", "backend", "server.ts"]
+}

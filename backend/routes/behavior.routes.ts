@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { addDoc, deleteDoc, doc, getDoc, query, serverTimestamp, where } from "firebase/firestore";
-import { behaviorRef, db, fetchAll, notificationsRef } from "../lib/db";
-import { requireAdmin, requireAuth, requireRole, requireSelfOrStaff } from "../lib/auth";
-import { audit } from "../lib/audit";
-import { notFound, wrap } from "../lib/http";
-import * as v from "../lib/validate";
+import { behaviorRef, db, fetchAll, notificationsRef } from "../lib/db.js";
+import { requireAdmin, requireAuth, requireRole, requireSelfOrStaff } from "../lib/auth.js";
+import { audit } from "../lib/audit.js";
+import { notFound, wrap } from "../lib/http.js";
+import * as v from "../lib/validate.js";
 
 const router = Router();
 

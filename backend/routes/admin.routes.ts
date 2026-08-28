@@ -22,12 +22,12 @@ import {
   notificationsRef,
   usersRef,
   validUidsRef,
-} from "../lib/db";
-import { hashPassword, requireAdmin, requireStaff, sanitizeUser } from "../lib/auth";
-import { audit } from "../lib/audit";
-import { badRequest, forbidden, notFound, wrap } from "../lib/http";
-import { invalidate } from "../lib/cache";
-import * as v from "../lib/validate";
+} from "../lib/db.js";
+import { hashPassword, requireAdmin, requireStaff, sanitizeUser } from "../lib/auth.js";
+import { audit } from "../lib/audit.js";
+import { badRequest, forbidden, notFound, wrap } from "../lib/http.js";
+import { invalidate } from "../lib/cache.js";
+import * as v from "../lib/validate.js";
 
 const router = Router();
 

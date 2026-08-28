@@ -9,11 +9,11 @@ import {
   getDocsByIds,
   notificationsRef,
   usersRef,
-} from "../lib/db";
-import { requireAuth, requireRole, requireSelfOrStaff } from "../lib/auth";
-import { audit } from "../lib/audit";
-import { badRequest, notFound, wrap } from "../lib/http";
-import * as v from "../lib/validate";
+} from "../lib/db.js";
+import { requireAuth, requireRole, requireSelfOrStaff } from "../lib/auth.js";
+import { audit } from "../lib/audit.js";
+import { badRequest, notFound, wrap } from "../lib/http.js";
+import * as v from "../lib/validate.js";
 
 const router = Router();
 

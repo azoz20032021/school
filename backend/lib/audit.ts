@@ -1,6 +1,6 @@
 import { addDoc, serverTimestamp } from "firebase/firestore";
 import type { Request } from "express";
-import { auditRef } from "./db";
+import { auditRef } from "./db.js";
 
 export type AuditAction =
   | "login"

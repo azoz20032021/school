@@ -1,5 +1,5 @@
 import express from "express";
-import app from "../backend/app";
+import app from "../backend/app.js";
 
 /**
  * Vercel serverless entry point.

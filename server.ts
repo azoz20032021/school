@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import apiApp from "./backend/app";
+import apiApp from "./backend/app.js";
 
 /**
  * Local / self-hosted entry point.

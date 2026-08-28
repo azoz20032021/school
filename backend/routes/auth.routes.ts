@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { doc, getDocs, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
-import { db, usersRef } from "../lib/db";
+import { db, usersRef } from "../lib/db.js";
 import {
   createToken,
   hashPassword,
@@ -10,10 +10,10 @@ import {
   sanitizeUser,
   verifyPassword,
   type Role,
-} from "../lib/auth";
-import { audit } from "../lib/audit";
-import { badRequest, HttpError, wrap } from "../lib/http";
-import * as v from "../lib/validate";
+} from "../lib/auth.js";
+import { audit } from "../lib/audit.js";
+import { badRequest, HttpError, wrap } from "../lib/http.js";
+import * as v from "../lib/validate.js";
 
 const router = Router();
 

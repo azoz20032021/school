@@ -13,11 +13,11 @@ import {
   paymentsRef,
   registrationsRef,
   usersRef,
-} from "../lib/db";
-import { requireAuth, requireRole, requireSelfOrStaff, sanitizeUser } from "../lib/auth";
-import { notFound, wrap } from "../lib/http";
-import { netAmount, remainingAmount, CURRENCY } from "./payments.routes";
-import * as v from "../lib/validate";
+} from "../lib/db.js";
+import { requireAuth, requireRole, requireSelfOrStaff, sanitizeUser } from "../lib/auth.js";
+import { notFound, wrap } from "../lib/http.js";
+import { netAmount, remainingAmount, CURRENCY } from "./payments.routes.js";
+import * as v from "../lib/validate.js";
 
 const router = Router();
 

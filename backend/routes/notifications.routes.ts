@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { doc, getDoc, getDocs, query, updateDoc, where, writeBatch } from "firebase/firestore";
-import { chunk, db, fetchAll, notificationsRef } from "../lib/db";
-import { requireAuth } from "../lib/auth";
-import { forbidden, notFound, wrap } from "../lib/http";
-import * as v from "../lib/validate";
+import { chunk, db, fetchAll, notificationsRef } from "../lib/db.js";
+import { requireAuth } from "../lib/auth.js";
+import { forbidden, notFound, wrap } from "../lib/http.js";
+import * as v from "../lib/validate.js";
 
 const router = Router();
 

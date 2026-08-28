@@ -10,11 +10,11 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { db, fetchAll, gradesRef, notificationsRef, usersRef } from "../lib/db";
-import { requireAuth, requireRole, requireSelfOrStaff } from "../lib/auth";
-import { audit } from "../lib/audit";
-import { forbidden, notFound, wrap } from "../lib/http";
-import * as v from "../lib/validate";
+import { db, fetchAll, gradesRef, notificationsRef, usersRef } from "../lib/db.js";
+import { requireAuth, requireRole, requireSelfOrStaff } from "../lib/auth.js";
+import { audit } from "../lib/audit.js";
+import { forbidden, notFound, wrap } from "../lib/http.js";
+import * as v from "../lib/validate.js";
 import type { Request } from "express";
 
 const router = Router();

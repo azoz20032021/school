@@ -1,24 +1,24 @@
 // Must come first: it populates process.env before the modules below read it.
-import "./lib/env";
+import "./lib/env.js";
 
 import express, { type NextFunction, type Request, type Response } from "express";
 import { addDoc, getDocs, limit as fsLimit, query, serverTimestamp, where } from "firebase/firestore";
-import { dbAuthConfigured, ensureDbAuth, subjectsRef, usersRef } from "./lib/db";
-import { attachUser, hashPassword, rateLimit } from "./lib/auth";
-import { HttpError } from "./lib/http";
-import { ValidationError } from "./lib/validate";
+import { dbAuthConfigured, ensureDbAuth, subjectsRef, usersRef } from "./lib/db.js";
+import { attachUser, hashPassword, rateLimit } from "./lib/auth.js";
+import { HttpError } from "./lib/http.js";
+import { ValidationError } from "./lib/validate.js";
 
-import authRoutes from "./routes/auth.routes";
-import registrationRoutes from "./routes/registrations.routes";
-import adminRoutes from "./routes/admin.routes";
-import classesRoutes from "./routes/classes.routes";
-import attendanceRoutes from "./routes/attendance.routes";
-import gradesRoutes from "./routes/grades.routes";
-import notificationsRoutes from "./routes/notifications.routes";
-import catalogRoutes from "./routes/catalog.routes";
-import paymentsRoutes from "./routes/payments.routes";
-import behaviorRoutes from "./routes/behavior.routes";
-import reportsRoutes from "./routes/reports.routes";
+import authRoutes from "./routes/auth.routes.js";
+import registrationRoutes from "./routes/registrations.routes.js";
+import adminRoutes from "./routes/admin.routes.js";
+import classesRoutes from "./routes/classes.routes.js";
+import attendanceRoutes from "./routes/attendance.routes.js";
+import gradesRoutes from "./routes/grades.routes.js";
+import notificationsRoutes from "./routes/notifications.routes.js";
+import catalogRoutes from "./routes/catalog.routes.js";
+import paymentsRoutes from "./routes/payments.routes.js";
+import behaviorRoutes from "./routes/behavior.routes.js";
+import reportsRoutes from "./routes/reports.routes.js";
 
 const app = express();
 

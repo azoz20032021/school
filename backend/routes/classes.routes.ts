@@ -22,13 +22,13 @@ import {
   invoicesRef,
   schedulesRef,
   usersRef,
-} from "../lib/db";
-import { requireAdmin, requireAuth, requireStaff } from "../lib/auth";
-import { audit } from "../lib/audit";
-import { badRequest, notFound, wrap } from "../lib/http";
-import { cached, invalidate } from "../lib/cache";
-import { remainingAmount } from "./payments.routes";
-import * as v from "../lib/validate";
+} from "../lib/db.js";
+import { requireAdmin, requireAuth, requireStaff } from "../lib/auth.js";
+import { audit } from "../lib/audit.js";
+import { badRequest, notFound, wrap } from "../lib/http.js";
+import { cached, invalidate } from "../lib/cache.js";
+import { remainingAmount } from "./payments.routes.js";
+import * as v from "../lib/validate.js";
 
 const router = Router();
 

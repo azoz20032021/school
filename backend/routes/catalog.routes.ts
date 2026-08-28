@@ -1,11 +1,11 @@
 import { Router } from "express";
 import { addDoc, deleteDoc, doc, getDoc, query, serverTimestamp, where } from "firebase/firestore";
-import { db, fetchAll, schedulesRef, subjectsRef } from "../lib/db";
-import { requireAuth, requireStaff } from "../lib/auth";
-import { audit } from "../lib/audit";
-import { badRequest, notFound, wrap } from "../lib/http";
-import { cached, invalidate } from "../lib/cache";
-import * as v from "../lib/validate";
+import { db, fetchAll, schedulesRef, subjectsRef } from "../lib/db.js";
+import { requireAuth, requireStaff } from "../lib/auth.js";
+import { audit } from "../lib/audit.js";
+import { badRequest, notFound, wrap } from "../lib/http.js";
+import { cached, invalidate } from "../lib/cache.js";
+import * as v from "../lib/validate.js";
 
 const router = Router();
 
