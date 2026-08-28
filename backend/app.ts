@@ -1,6 +1,9 @@
+// Must come first: it populates process.env before the modules below read it.
+import "./lib/env";
+
 import express, { type NextFunction, type Request, type Response } from "express";
 import { addDoc, getDocs, limit as fsLimit, query, serverTimestamp, where } from "firebase/firestore";
-import { ensureDbAuth, subjectsRef, usersRef } from "./lib/db";
+import { dbAuthConfigured, ensureDbAuth, subjectsRef, usersRef } from "./lib/db";
 import { attachUser, hashPassword, rateLimit } from "./lib/auth";
 import { HttpError } from "./lib/http";
 import { ValidationError } from "./lib/validate";
@@ -136,6 +139,31 @@ app.use("/api", (_req, res) => {
 // Central error handler. Internal details stay in the logs; the client gets an
 // Arabic message and nothing about the stack or the database.
 app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+  /**
+   * Firestore rejecting us is a configuration problem, not a bug in the
+   * request. It happens when the security rules are deployed but the server
+   * has no service-account credentials to present — the exact state you land
+   * in if the rules go out before the environment variables. Say so plainly
+   * instead of returning an opaque 500 that looks like the site is broken.
+   */
+  if (err?.code === "permission-denied") {
+    console.error(
+      `\n[config] Firestore refused ${req.method} ${req.url} — "permission-denied".\n` +
+        (dbAuthConfigured
+          ? "         The service account is configured but its UID does not match the one\n" +
+            "         in firestore.rules. Compare them in the Firebase console.\n"
+          : "         Security rules are deployed but FIREBASE_SERVER_EMAIL /\n" +
+            "         FIREBASE_SERVER_PASSWORD are not set, so the API is connecting\n" +
+            "         anonymously. Set them, then redeploy. See DEPLOYMENT.md.\n")
+    );
+    return res.status(503).json({
+      error:
+        "الخادم غير مصرح له بالوصول لقاعدة البيانات. " +
+        "تأكد من ضبط FIREBASE_SERVER_EMAIL و FIREBASE_SERVER_PASSWORD، " +
+        "وأن الـ UID في firestore.rules يطابق حساب الخدمة.",
+    });
+  }
+
   const status = err instanceof ValidationError ? 400 : err?.status || err?.statusCode || 500;
 
   if (status >= 500) {
