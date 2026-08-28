@@ -41,11 +41,16 @@ const RootRedirect = () => {
   return <StudentDashboard user={user} />;
 };
 
-/** Students read their grades; everyone else records them. */
+/**
+ * Students read their own grades. Recording them is limited to the full admin
+ * and to teachers — assistant admins are excluded, matching the API.
+ */
 const GradesRoute = () => {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  return user.role === 'student' ? <StudentGrades user={user} /> : <GradesManagement user={user} />;
+  if (user.role === 'student') return <StudentGrades user={user} />;
+  if (user.role === 'assistant_admin') return <Navigate to="/" replace />;
+  return <GradesManagement user={user} />;
 };
 
 /** Students see their own dues; staff see the whole ledger. */

@@ -29,11 +29,14 @@ const SEMESTERS = ["الفصل الأول", "الفصل الثاني", "الفص
  * caller could name someone else — or simply omit the field — and skip the
  * check entirely. The identity now comes from the verified session, and a
  * missing subject assignment is a denial rather than a pass.
+ *
+ * Assistant admins are deliberately excluded: they run day-to-day operations
+ * but grades are the full admin's responsibility.
  */
 async function assertMaySetGrade(req: Request, subject: string): Promise<void> {
   const role = req.user!.role;
-  if (role === "admin" || role === "assistant_admin") return;
-  if (role !== "teacher") throw forbidden("غير مصرح لك برصد الدرجات");
+  if (role === "admin") return;
+  if (role !== "teacher") throw forbidden("رصد الدرجات مقتصر على المدير والمعلمين");
 
   const teacherSnap = await getDoc(doc(db, "users", req.user!.id));
   const subjects: string[] = teacherSnap.exists() ? teacherSnap.data().subjects || [] : [];
@@ -70,7 +73,7 @@ router.get(
 router.post(
   "/grades",
   requireAuth,
-  requireRole("teacher", "admin", "assistant_admin"),
+  requireRole("teacher", "admin"),
   wrap(async (req, res) => {
     const b = req.body || {};
     const subject = v.str(b.subject, "المادة", { max: 80 });
@@ -121,7 +124,7 @@ router.post(
 router.put(
   "/grades/:id",
   requireAuth,
-  requireRole("teacher", "admin", "assistant_admin"),
+  requireRole("teacher", "admin"),
   wrap(async (req, res) => {
     const target = doc(db, "grades", req.params.id);
     const snap = await getDoc(target);
@@ -162,7 +165,7 @@ router.put(
 router.delete(
   "/grades/:id",
   requireAuth,
-  requireRole("teacher", "admin", "assistant_admin"),
+  requireRole("teacher", "admin"),
   wrap(async (req, res) => {
     const target = doc(db, "grades", req.params.id);
     const snap = await getDoc(target);

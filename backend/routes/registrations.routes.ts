@@ -30,7 +30,6 @@ import * as v from "../lib/validate.js";
 
 const router = Router();
 
-const GENDERS = ["ذكر", "أنثى"] as const;
 const RELATIONS = ["الأب", "الأم", "الأخ", "العم", "الخال", "الجد", "ولي أمر آخر"] as const;
 const STATUSES = ["pending", "approved", "rejected"] as const;
 
@@ -86,8 +85,6 @@ router.post(
       national_id: v.str(b.national_id, "رقم الهوية / البطاقة الوطنية", { min: 4, max: 40 }),
       birth_date: v.isoDate(b.birth_date, "تاريخ الميلاد"),
       birth_place: v.str(b.birth_place, "محل الولادة", { max: 120, optional: true }),
-      gender: v.oneOf(b.gender, "الجنس", GENDERS),
-      nationality: v.str(b.nationality, "الجنسية", { max: 60, optional: true }),
 
       phone: v.phone(b.phone, "رقم هاتف الطالب"),
       email: v.email(b.email, "البريد الإلكتروني", { optional: true }),
@@ -257,8 +254,6 @@ router.post(
       national_id: data.national_id,
       birth_date: data.birth_date,
       birth_place: data.birth_place || "",
-      gender: data.gender,
-      nationality: data.nationality || "",
       phone: data.phone,
       email: data.email || "",
       address: data.address,

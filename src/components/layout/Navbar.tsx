@@ -63,7 +63,7 @@ const SECONDARY: Record<Role, NavItem[]> = {
         { to: '/settings', label: 'الإعدادات وسجل العمليات', icon: SettingsIcon },
     ],
     assistant_admin: [
-        { to: '/grades', label: 'رصد الدرجات', icon: CheckCircle },
+        // No /grades entry: recording grades is admin-only.
         { to: '/behavior', label: 'السلوك والملاحظات', icon: Smile },
         { to: '/subjects', label: 'المواد الدراسية', icon: BookOpen },
         { to: '/schedule', label: 'الجدول الأسبوعي', icon: Calendar },

@@ -5,7 +5,6 @@ import { Check, ChevronLeft, ChevronRight, Copy, Loader2 } from 'lucide-react';
 import { ClassData } from '../types';
 import { api, ApiError } from '../lib/api';
 
-const GENDERS = ['ذكر', 'أنثى'];
 const RELATIONS = ['الأب', 'الأم', 'الأخ', 'العم', 'الخال', 'الجد', 'ولي أمر آخر'];
 
 interface FormState {
@@ -14,8 +13,6 @@ interface FormState {
     national_id: string;
     birth_date: string;
     birth_place: string;
-    gender: string;
-    nationality: string;
     phone: string;
     email: string;
     address: string;
@@ -35,7 +32,7 @@ interface FormState {
 
 const EMPTY: FormState = {
     full_name: '', mother_name: '', national_id: '', birth_date: '', birth_place: '',
-    gender: '', nationality: 'عراقي', phone: '', email: '', address: '',
+    phone: '', email: '', address: '',
     guardian_name: '', guardian_phone: '', guardian_relation: 'الأب', guardian_job: '',
     previous_school: '', last_grade: '', last_average: '', health_notes: '', notes: '',
     requested_class_id: '', password: '', confirm_password: '',
@@ -50,7 +47,7 @@ const STEPS = [
 
 /** Fields that must be filled before each step is allowed to advance. */
 const REQUIRED_PER_STEP: (keyof FormState)[][] = [
-    ['full_name', 'national_id', 'birth_date', 'gender'],
+    ['full_name', 'national_id', 'birth_date'],
     ['phone', 'address', 'guardian_name', 'guardian_phone'],
     ['requested_class_id'],
     ['password', 'confirm_password'],
@@ -64,7 +61,10 @@ const Field: React.FC<{
 }> = ({ label, required, children, hint }) => (
     <div>
         <label className="block text-[11px] font-bold text-slate-600 mb-1.5">
-            {label} {required && <span className="text-red-500">*</span>}
+            {label}{' '}
+            {required
+                ? <span className="text-red-500">*</span>
+                : <span className="text-slate-400 font-medium">(اختياري)</span>}
         </label>
         {children}
         {hint && <p className="text-[10px] text-slate-400 mt-1">{hint}</p>}
@@ -110,6 +110,14 @@ export const Register: React.FC = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Enter inside a field submits the form even when the visible button is
+        // "next". Treat any submit before the last step as a request to advance.
+        if (step < STEPS.length - 1) {
+            goNext();
+            return;
+        }
+
         if (form.password !== form.confirm_password) {
             setError('كلمتا المرور غير متطابقتين');
             return;
@@ -123,8 +131,6 @@ export const Register: React.FC = () => {
             setTrackingCode(res.tracking_code);
         } catch (err) {
             setError(err instanceof ApiError ? err.message : 'حدث خطأ في الاتصال بالخادم');
-            // Send the user back to the step most likely to hold the bad field.
-            if (err instanceof ApiError && err.status === 400) setStep(0);
         } finally {
             setLoading(false);
         }
@@ -228,17 +234,9 @@ export const Register: React.FC = () => {
                             <Field label="اسم الأم الثلاثي">
                                 <input className={inputClass} value={form.mother_name} onChange={set('mother_name')} />
                             </Field>
-                            <div className="grid grid-cols-2 gap-3">
-                                <Field label="رقم البطاقة الوطنية" required>
-                                    <input className={inputClass} value={form.national_id} onChange={set('national_id')} />
-                                </Field>
-                                <Field label="الجنس" required>
-                                    <select className={inputClass} value={form.gender} onChange={set('gender')}>
-                                        <option value="">-- اختر --</option>
-                                        {GENDERS.map((g) => <option key={g} value={g}>{g}</option>)}
-                                    </select>
-                                </Field>
-                            </div>
+                            <Field label="رقم البطاقة الوطنية" required>
+                                <input className={inputClass} value={form.national_id} onChange={set('national_id')} />
+                            </Field>
                             <div className="grid grid-cols-2 gap-3">
                                 <Field label="تاريخ الميلاد" required>
                                     <input type="date" className={inputClass} value={form.birth_date} onChange={set('birth_date')} />
@@ -247,9 +245,6 @@ export const Register: React.FC = () => {
                                     <input className={inputClass} value={form.birth_place} onChange={set('birth_place')} />
                                 </Field>
                             </div>
-                            <Field label="الجنسية">
-                                <input className={inputClass} value={form.nationality} onChange={set('nationality')} />
-                            </Field>
                         </>
                     )}
 

@@ -51,7 +51,7 @@ export interface Registration {
     national_id: string;
     birth_date: string;
     birth_place?: string;
-    gender: string;
+    gender?: string;
     nationality?: string;
     phone: string;
     email?: string;

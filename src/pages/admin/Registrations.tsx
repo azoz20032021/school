@@ -183,8 +183,6 @@ export const Registrations: React.FC = () => {
                                 <DetailRow label="رقم البطاقة" value={viewing.national_id} />
                                 <DetailRow label="تاريخ الميلاد" value={viewing.birth_date} />
                                 <DetailRow label="محل الولادة" value={viewing.birth_place} />
-                                <DetailRow label="الجنس" value={viewing.gender} />
-                                <DetailRow label="الجنسية" value={viewing.nationality} />
                             </div>
                             <div>
                                 <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1 mt-4 md:mt-0">التواصل وولي الأمر</p>
