@@ -48,17 +48,27 @@ if (process.env.NODE_ENV !== "production") {
 
 app.use(attachUser);
 
-// Make sure the Firestore service-account sign-in has completed before any
-// route touches the database.
+/**
+ * Health check, deliberately mounted *before* the database gate so it answers
+ * even when Firestore is unreachable. That distinction is the whole point of
+ * the endpoint: a reply here means the function booted and the problem is the
+ * database, while no reply at all means the function itself failed to start.
+ */
+app.get("/api/health", (_req, res) => {
+  res.json({
+    ok: true,
+    time: new Date().toISOString(),
+    db_auth_configured: dbAuthConfigured,
+  });
+});
+
+// Every route below this point needs the database, so wait for the
+// service-account sign-in to finish first.
 app.use((_req, res, next) => {
   ensureDbAuth().then(
     () => next(),
     () => res.status(503).json({ error: "تعذر الاتصال بقاعدة البيانات، يرجى المحاولة بعد قليل" })
   );
-});
-
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, time: new Date().toISOString() });
 });
 
 /**

@@ -1,5 +1,4 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
 import {
   getFirestore,
   collection,
@@ -71,8 +70,14 @@ export function ensureDbAuth(): Promise<void> {
   if (!dbAuthConfigured) return Promise.resolve();
 
   if (!signInPromise) {
-    const auth = getAuth(firebaseApp);
-    signInPromise = signInWithEmailAndPassword(auth, serverEmail!, serverPassword!)
+    // Imported lazily rather than at module scope: `firebase/auth` is only
+    // needed when a service account is configured, and a bundler that resolves
+    // it to the browser build would otherwise crash the whole function at
+    // import time — taking down even routes that never touch the database.
+    signInPromise = import("firebase/auth")
+      .then(({ getAuth, signInWithEmailAndPassword }) =>
+        signInWithEmailAndPassword(getAuth(firebaseApp), serverEmail!, serverPassword!)
+      )
       .then(() => {
         console.log("[db] signed in to Firestore as the server service account");
       })
