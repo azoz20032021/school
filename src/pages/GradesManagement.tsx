@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { GraduationCap, ChevronRight, ArrowRight, Plus, Trash2, Edit2, Users, Printer } from 'lucide-react';
 import { UserData, ClassData } from '../types';
 import { api, ApiError } from '../lib/api';
+import { t } from '../i18n';
 
 interface GradesManagementProps {
     user: UserData;
@@ -59,7 +60,7 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
             setClassStudents(studentsData);
             setAllGrades(gradesData);
         } catch (err) {
-            alert(err instanceof ApiError ? err.message : 'تعذر تحميل بيانات الصف');
+            alert(err instanceof ApiError ? err.message : t('تعذر تحميل بيانات الصف'));
             setSelectedClass(null);
         }
     };
@@ -77,12 +78,12 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
 
         const printWindow = window.open('', '_blank', 'width=800,height=600');
         if (!printWindow) {
-            alert('الرجاء السماح بالنوافذ المنبثقة للطباعة');
+            alert(t('الرجاء السماح بالنوافذ المنبثقة للطباعة'));
             return;
         }
 
         const htmlContent = `
-      <html dir="rtl">
+      <html>
         <head>
           <title>تقرير درجات: ${selectedClass.name}</title>
           <style>
@@ -97,15 +98,15 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
         </head>
         <body>
           <div class="header">
-            <h1>تقرير درجات الطلاب</h1>
+            <h1>${t('تقرير درجات الطلاب')}</h1>
             <p>الصف: ${selectedClass.name}</p>
-            <p>نوع التقرير: ${printFilter.category === 'الكل' ? 'جميع الدرجات' : printFilter.category} - ${printFilter.semester === 'الكل' ? 'جميع الفصول' : printFilter.semester}</p>
+            <p>نوع التقرير: ${printFilter.category === 'الكل' ? t('جميع الدرجات') : printFilter.category} - ${printFilter.semester === 'الكل' ? t('جميع الفصول') : printFilter.semester}</p>
             <p>التاريخ: ${new Date().toLocaleDateString('ar-EG')}</p>
           </div>
           <table>
             <thead>
               <tr>
-                <th style="width: 200px;">اسم الطالب</th>
+                <th style="width: 200px;">${t('اسم الطالب')}</th>
                 ${[...new Set(filteredGrades.map(g => g.subject))].map(sub => `<th>${sub}</th>`).join('')}
               </tr>
             </thead>
@@ -125,7 +126,7 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
                     if (grade?.semester === 'نصف السنة') catLabel = 'درجة نصف السنة';
                     else if (grade?.semester === 'السعي السنوي ') catLabel = 'درجة سنوية';
                 }
-                return `<td>${grade ? `${grade.score} / ${grade.total}<br><small>(${catLabel})</small>` : '-'}</td>`;
+                return `<td>${grade ? `${grade.score} / ${grade.total}<br><small>(${t(catLabel)})</small>` : '-'}</td>`;
             }).join('')}
                   </tr>
                 `;
@@ -149,7 +150,7 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
         if (!showAddGrade || !selectedClass) return;
 
         if (!newGrade.subject && user.role === 'teacher') {
-            alert('يرجى اختيار المادة أولاً');
+            alert(t('يرجى اختيار المادة أولاً'));
             return;
         }
 
@@ -157,7 +158,7 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
         const total = parseInt(newGrade.total);
 
         if (isNaN(score) || isNaN(total)) {
-            alert('يرجى إدخال أرقام صحيحة للدرجات');
+            alert(t('يرجى إدخال أرقام صحيحة للدرجات'));
             return;
         }
 
@@ -194,7 +195,7 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
             alert(editingGradeId ? 'تم تحديث الدرجة بنجاح' : 'تمت إضافة الدرجة بنجاح');
             handleSelectClass(selectedClass);
         } catch (err) {
-            alert(err instanceof ApiError ? err.message : 'حدث خطأ أثناء حفظ الدرجة');
+            alert(err instanceof ApiError ? err.message : t('حدث خطأ أثناء حفظ الدرجة'));
         }
     };
 
@@ -205,28 +206,30 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
             subject: g.subject,
             score: g.score.toString(),
             total: g.total.toString(),
+            // Form state is posted back to the API, so it holds the stored
+            // Arabic value — translation happens only where it is displayed.
             category: g.category || 'يومي',
             semester: g.semester || 'الفصل الأول'
         });
     };
 
     const handleDeleteGrade = async (gradeId: string) => {
-        if (confirm('هل أنت متأكد من حذف هذه الدرجة نهائياً؟ لا يمكن التراجع عن هذه الخطوة.')) {
+        if (confirm(t('هل أنت متأكد من حذف هذه الدرجة نهائياً؟ لا يمكن التراجع عن هذه الخطوة.'))) {
             try {
                 await api.del(`/api/grades/${gradeId}`);
                 if (selectedClass) handleSelectClass(selectedClass);
             } catch (err) {
-                alert(err instanceof ApiError ? err.message : 'تعذر حذف الدرجة');
+                alert(err instanceof ApiError ? err.message : t('تعذر حذف الدرجة'));
             }
         }
     };
 
     return (
-        <div className="p-4 md:p-6 space-y-4 md:space-y-6" dir="rtl">
+        <div className="p-4 md:p-6 space-y-4 md:space-y-6">
             {!selectedClass ? (
                 <div className="space-y-4">
                     <h3 className="font-bold text-slate-800 text-lg">
-                        {user.role === 'admin' ? 'إدارة درجات جميع الصفوف' : 'اختيار الصف لتعديل الدرجات'}
+                        {user.role === 'admin' ? t('إدارة درجات جميع الصفوف') : t('اختيار الصف لتعديل الدرجات')}
                     </h3>
                     <div className="space-y-3">
                         {classes.map(c => (
@@ -261,7 +264,7 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
                             className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white py-3 rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-lg"
                         >
                             <Printer className="w-5 h-5 text-amber-400" />
-                            طباعة تقرير الدرجات
+                            {t('طباعة تقرير الدرجات')}
                         </button>
                     )}
                     <div className="space-y-4">
@@ -285,7 +288,7 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
                                                     onClick={() => setShowAddGrade({ studentId: student.id, name: student.name })}
                                                     className="text-indigo-600 text-xs font-bold flex items-center gap-1 bg-indigo-50 px-3 py-1.5 rounded-full"
                                                 >
-                                                    <Plus className="w-3 h-3" /> إضافة درجة
+                                                    <Plus className="w-3 h-3" /> {t('إضافة درجة')}
                                                 </button>
                                             )}
                                         </div>
@@ -296,9 +299,9 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
                                                     <div key={g.id} className="flex justify-between items-center bg-slate-50/50 p-3 rounded-2xl border border-slate-50">
                                                         <div>
                                                             <p className="text-xs font-bold text-slate-700">
-                                                                {g.subject} - {g.category === 'امتحان فصل' ? (g.semester === 'الفصل الثاني' ? 'درجة فصل ثاني' : 'درجة فصل اول') : (g.category === 'الكل' ? (g.semester === 'نصف السنة' ? 'درجة نصف السنة' : 'درجة سنوية') : (g.category || 'يومي'))}
+                                                                {g.subject} - {g.category === 'امتحان فصل' ? (g.semester === 'الفصل الثاني' ? t('درجة فصل ثاني') : t('درجة فصل اول')) : (g.category === 'الكل' ? (g.semester === 'نصف السنة' ? t('درجة نصف السنة') : t('درجة سنوية')) : (g.category || t('يومي')))}
                                                             </p>
-                                                            <p className="text-[10px] text-slate-400">{(g.semester || 'الفصل الأول')} | {g.category === 'امتحان فصل' ? (g.semester === 'الفصل الثاني' ? 'درجة فصل ثاني' : 'درجة فصل اول') : (g.category === 'الكل' ? (g.semester === 'نصف السنة' ? 'درجة نصف السنة' : 'درجة سنوية') : (g.category || 'يومي'))}</p>
+                                                            <p className="text-[10px] text-slate-400">{(g.semester || t('الفصل الأول'))} | {g.category === 'امتحان فصل' ? (g.semester === 'الفصل الثاني' ? t('درجة فصل ثاني') : t('درجة فصل اول')) : (g.category === 'الكل' ? (g.semester === 'نصف السنة' ? t('درجة نصف السنة') : t('درجة سنوية')) : (g.category || t('يومي')))}</p>
                                                         </div>
                                                         <div className="flex items-center gap-2">
                                                             <p className="font-bold text-slate-800 text-sm ml-2">{g.score} <span className="text-[10px] text-slate-300">/ {g.total}</span></p>
@@ -322,7 +325,7 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
                                                     </div>
                                                 ))
                                             ) : (
-                                                <p className="text-[10px] text-slate-400 text-center py-2">لا توجد درجات مضافة بعد</p>
+                                                <p className="text-[10px] text-slate-400 text-center py-2">{t('لا توجد درجات مضافة بعد')}</p>
                                             )}
                                         </div>
                                     </div>
@@ -331,7 +334,7 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
                         ) : (
                             <div className="p-10 text-center text-slate-400">
                                 <Users className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                                <p>لا يوجد طلاب مسجلين في هذا الصف</p>
+                                <p>{t('لا يوجد طلاب مسجلين في هذا الصف')}</p>
                             </div>
                         )}
                     </div>
@@ -344,48 +347,48 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
                                     animate={{ scale: 1, opacity: 1 }}
                                     className="bg-white w-full max-sm rounded-3xl p-6 shadow-2xl space-y-4"
                                 >
-                                    <h4 className="font-bold text-slate-800">{editingGradeId ? 'تعديل درجة الطالب' : 'إضافة درجة للطالب'}: {showAddGrade.name}</h4>
+                                    <h4 className="font-bold text-slate-800">{editingGradeId ? t('تعديل درجة الطالب') : t('إضافة درجة للطالب')}: {showAddGrade.name}</h4>
                                     <form onSubmit={handleAddGrade} className="space-y-4">
                                         <div>
                                             <div className="grid grid-cols-2 gap-4 mb-4">
                                                 <div>
-                                                    <label className="block text-[10px] font-bold text-slate-400 mb-1">نوع الدرجة</label>
+                                                    <label className="block text-[10px] font-bold text-slate-400 mb-1">{t('نوع الدرجة')}</label>
                                                     <select
                                                         className="w-full px-4 py-2 rounded-xl border border-slate-100 outline-none text-sm bg-slate-50 font-sans transition-all"
                                                         value={newGrade.category}
                                                         onChange={e => setNewGrade({ ...newGrade, category: e.target.value })}
                                                     >
                                                         {newGrade.semester === 'نصف السنة' ? (
-                                                            <option value="الكل">درجة نصف السنة</option>
+                                                            <option value="الكل">{t('درجة نصف السنة')}</option>
                                                         ) : newGrade.semester === 'السعي السنوي ' ? (
-                                                            <option value="الكل">درجة سنوية</option>
+                                                            <option value="الكل">{t('درجة سنوية')}</option>
                                                         ) : (
                                                             <>
-                                                                <option value="يومي">يومي</option>
-                                                                <option value="شهر أول">شهر أول</option>
-                                                                <option value="شهر ثاني">شهر ثاني</option>
+                                                                <option value="يومي">{t('يومي')}</option>
+                                                                <option value="شهر أول">{t('شهر أول')}</option>
+                                                                <option value="شهر ثاني">{t('شهر ثاني')}</option>
                                                                 <option value="امتحان فصل">
-                                                                    {newGrade.semester === 'الفصل الثاني' ? 'درجة فصل ثاني' : 'درجة فصل اول'}
+                                                                    {newGrade.semester === 'الفصل الثاني' ? t('درجة فصل ثاني') : t('درجة فصل اول')}
                                                                 </option>
                                                             </>
                                                         )}
                                                     </select>
                                                 </div>
                                                 <div>
-                                                    <label className="block text-[10px] font-bold text-slate-400 mb-1">الفصل الدراسي</label>
+                                                    <label className="block text-[10px] font-bold text-slate-400 mb-1">{t('الفصل الدراسي')}</label>
                                                     <select
                                                         className="w-full px-4 py-2 rounded-xl border border-slate-100 outline-none text-sm bg-slate-50 font-sans"
                                                         value={newGrade.semester}
                                                         onChange={e => setNewGrade({ ...newGrade, semester: e.target.value })}
                                                     >
-                                                        <option value="الفصل الأول">الفصل الأول</option>
-                                                        <option value="الفصل الثاني">الفصل الثاني</option>
-                                                        <option value="نصف السنة">نصف السنة </option>
-                                                        <option value="السعي السنوي ">السعي السنوي  </option>
+                                                        <option value="الفصل الأول">{t('الفصل الأول')}</option>
+                                                        <option value="الفصل الثاني">{t('الفصل الثاني')}</option>
+                                                        <option value="نصف السنة">{t('نصف السنة')} </option>
+                                                        <option value="السعي السنوي ">{t('السعي السنوي')}  </option>
                                                     </select>
                                                 </div>
                                             </div>
-                                            <label className="block text-[10px] font-bold text-slate-400 mb-1">المادة</label>
+                                            <label className="block text-[10px] font-bold text-slate-400 mb-1">{t('المادة')}</label>
                                             <select
                                                 className="w-full px-4 py-2 rounded-xl border border-slate-100 outline-none text-sm bg-slate-50 font-sans"
                                                 value={newGrade.subject}
@@ -402,14 +405,14 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
                                                             <option key={s} value={s}>{s}</option>
                                                         ))
                                                     ) : (
-                                                        <option value="" disabled>لا توجد مواد معينة</option>
+                                                        <option value="" disabled>{t('لا توجد مواد معينة')}</option>
                                                     )
                                                 )}
                                             </select>
                                         </div>
                                         <div className="grid grid-cols-2 gap-4">
                                             <div>
-                                                <label className="block text-[10px] font-bold text-slate-400 mb-1">الدرجة</label>
+                                                <label className="block text-[10px] font-bold text-slate-400 mb-1">{t('الدرجة')}</label>
                                                 <input
                                                     type="number"
                                                     required
@@ -419,7 +422,7 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
                                                 />
                                             </div>
                                             <div>
-                                                <label className="block text-[10px] font-bold text-slate-400 mb-1">الدرجة الكلية</label>
+                                                <label className="block text-[10px] font-bold text-slate-400 mb-1">{t('الدرجة الكلية')}</label>
                                                 <input
                                                     type="number"
                                                     required
@@ -440,13 +443,13 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
                                                 }}
                                                 className="flex-1 py-2 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm"
                                             >
-                                                إلغاء
+                                                {t('إلغاء')}
                                             </button>
                                             <button
                                                 type="submit"
                                                 className="flex-1 py-2 bg-indigo-600 text-white rounded-xl font-bold text-sm"
                                             >
-                                                {editingGradeId ? 'تحديث' : 'حفظ'}
+                                                {editingGradeId ? t('تحديث') : t('حفظ')}
                                             </button>
                                         </div>
                                     </form>
@@ -465,10 +468,10 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
                             animate={{ scale: 1, opacity: 1 }}
                             className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl space-y-4"
                         >
-                            <h4 className="font-bold text-slate-800 text-center">خيارات طباعة التقرير</h4>
+                            <h4 className="font-bold text-slate-800 text-center">{t('خيارات طباعة التقرير')}</h4>
                             <div className="space-y-5">
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-400 mb-3">الفصل الدراسي</label>
+                                    <label className="block text-xs font-bold text-slate-400 mb-3">{t('الفصل الدراسي')}</label>
                                     <div className="grid grid-cols-2 gap-2">
                                         {['الكل', 'الفصل الأول', 'الفصل الثاني', 'نصف السنة', 'السعي السنوي '].map(sem => (
                                             <button
@@ -490,7 +493,7 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
                                 </div>
                                 {!['نصف السنة', 'السعي السنوي '].includes(printFilter.semester) && (
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-400 mb-3">نوع الدرجات المراد طباعتها</label>
+                                        <label className="block text-xs font-bold text-slate-400 mb-3">{t('نوع الدرجات المراد طباعتها')}</label>
                                         <div className="grid grid-cols-2 gap-2">
                                             {['الكل', 'يومي', 'شهر أول', 'شهر ثاني', 'امتحان فصل'].map(cat => (
                                                 <button
@@ -499,7 +502,7 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
                                                     onClick={() => setPrintFilter({ ...printFilter, category: cat })}
                                                     className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all border ${printFilter.category === cat ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100' : 'bg-slate-50 text-slate-500 border-slate-100 hover:bg-slate-100'}`}
                                                 >
-                                                    {cat === 'امتحان فصل' ? (printFilter.semester === 'الفصل الثاني' ? 'درجة فصل ثاني' : 'درجة فصل اول') : cat}
+                                                    {cat === 'امتحان فصل' ? (printFilter.semester === 'الفصل الثاني' ? t('درجة فصل ثاني') : t('درجة فصل اول')) : cat}
                                                 </button>
                                             ))}
                                         </div>
@@ -512,13 +515,13 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
                                     onClick={() => setShowPrintOptions(false)}
                                     className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors"
                                 >
-                                    إلغاء
+                                    {t('إلغاء')}
                                 </button>
                                 <button
                                     onClick={handlePrint}
                                     className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-colors"
                                 >
-                                    بدء الطباعة
+                                    {t('بدء الطباعة')}
                                 </button>
                             </div>
                         </motion.div>

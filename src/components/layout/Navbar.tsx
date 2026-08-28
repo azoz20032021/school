@@ -6,6 +6,7 @@ import {
     Smile, UserCheck, Wallet, X,
 } from 'lucide-react';
 import { Role } from '../../types';
+import { t } from '../../i18n';
 
 interface NavItem {
     to: string;
@@ -87,7 +88,7 @@ export const Navbar: React.FC<{ role: Role }> = ({ role }) => {
         <>
             <AnimatePresence>
                 {showMore && (
-                    <div className="fixed inset-0 z-[150] flex items-end" dir="rtl">
+                    <div className="fixed inset-0 z-[150] flex items-end">
                         <motion.div
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
@@ -103,11 +104,11 @@ export const Navbar: React.FC<{ role: Role }> = ({ role }) => {
                             className="relative w-full bg-white rounded-t-3xl p-5 pb-8 shadow-2xl"
                         >
                             <div className="flex items-center justify-between mb-4">
-                                <h4 className="font-black text-slate-800 text-sm">المزيد</h4>
+                                <h4 className="font-black text-slate-800 text-sm">{t('المزيد')}</h4>
                                 <button
                                     onClick={() => setShowMore(false)}
                                     className="p-2 text-slate-400 hover:bg-slate-50 rounded-xl"
-                                    aria-label="إغلاق"
+                                    aria-label={t('إغلاق')}
                                 >
                                     <X className="w-4 h-4" />
                                 </button>
@@ -122,7 +123,7 @@ export const Navbar: React.FC<{ role: Role }> = ({ role }) => {
                                         <div className="w-10 h-10 bg-slate-50 text-slate-500 rounded-xl flex items-center justify-center shrink-0">
                                             <Icon className="w-4 h-4" />
                                         </div>
-                                        <span className="text-sm font-bold text-slate-700">{label}</span>
+                                        <span className="text-sm font-bold text-slate-700">{t(label)}</span>
                                     </button>
                                 ))}
                             </div>
@@ -133,7 +134,7 @@ export const Navbar: React.FC<{ role: Role }> = ({ role }) => {
 
             <nav
                 className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-lg border-t border-slate-100 px-3 py-2.5 flex justify-around items-center z-50 rounded-t-3xl shadow-2xl print:hidden"
-                dir="rtl"
+               
             >
                 {primary.map(({ to, label, icon: Icon }) => (
                     <NavLink
@@ -147,7 +148,7 @@ export const Navbar: React.FC<{ role: Role }> = ({ role }) => {
                         }
                     >
                         <Icon className="w-5 h-5" />
-                        <span className="text-[9px] font-black">{label}</span>
+                        <span className="text-[9px] font-black">{t(label)}</span>
                     </NavLink>
                 ))}
 
@@ -157,7 +158,7 @@ export const Navbar: React.FC<{ role: Role }> = ({ role }) => {
                         className="flex flex-col items-center gap-0.5 text-slate-400 px-2"
                     >
                         <MoreHorizontal className="w-5 h-5" />
-                        <span className="text-[9px] font-black">المزيد</span>
+                        <span className="text-[9px] font-black">{t('المزيد')}</span>
                     </button>
                 )}
             </nav>

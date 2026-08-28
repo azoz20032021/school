@@ -7,6 +7,7 @@ import { dbAuthConfigured, ensureDbAuth, getServerUid, subjectsRef, usersRef } f
 import { attachUser, hashPassword, rateLimit } from "./lib/auth.js";
 import { HttpError } from "./lib/http.js";
 import { ValidationError } from "./lib/validate.js";
+import { langOf, tr } from "./lib/i18n.js";
 
 import authRoutes from "./routes/auth.routes.js";
 import registrationRoutes from "./routes/registrations.routes.js";
@@ -80,10 +81,13 @@ app.get("/api/health", async (_req, res) => {
 
 // Every route below this point needs the database, so wait for the
 // service-account sign-in to finish first.
-app.use((_req, res, next) => {
+app.use((req, res, next) => {
   ensureDbAuth().then(
     () => next(),
-    () => res.status(503).json({ error: "تعذر الاتصال بقاعدة البيانات، يرجى المحاولة بعد قليل" })
+    () =>
+      res.status(503).json({
+        error: tr("تعذر الاتصال بقاعدة البيانات، يرجى المحاولة بعد قليل", langOf(req)),
+      })
   );
 });
 
@@ -158,8 +162,8 @@ app.use("/api", paymentsRoutes);
 app.use("/api", behaviorRoutes);
 app.use("/api", reportsRoutes);
 
-app.use("/api", (_req, res) => {
-  res.status(404).json({ error: "المسار المطلوب غير موجود" });
+app.use("/api", (req, res) => {
+  res.status(404).json({ error: tr("المسار المطلوب غير موجود", langOf(req)) });
 });
 
 // Central error handler. Internal details stay in the logs; the client gets an
@@ -183,10 +187,12 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
             "         anonymously. Set them, then redeploy. See DEPLOYMENT.md.\n")
     );
     return res.status(503).json({
-      error:
+      error: tr(
         "الخادم غير مصرح له بالوصول لقاعدة البيانات. " +
-        "تأكد من ضبط FIREBASE_SERVER_EMAIL و FIREBASE_SERVER_PASSWORD، " +
-        "وأن الـ UID في firestore.rules يطابق حساب الخدمة.",
+          "تأكد من ضبط FIREBASE_SERVER_EMAIL و FIREBASE_SERVER_PASSWORD، " +
+          "وأن الـ UID في firestore.rules يطابق حساب الخدمة.",
+        langOf(req)
+      ),
     });
   }
 
@@ -196,8 +202,15 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     console.error(`[error] ${req.method} ${req.url}`, err);
   }
 
+  // Validation errors carry a key and parameters; everything else is a fixed
+  // Arabic string that doubles as its own translation key.
+  const lang = langOf(req);
   const message =
-    status >= 500 ? "حدث خطأ في الخادم، يرجى المحاولة لاحقاً" : err?.message || "طلب غير صالح";
+    err instanceof ValidationError
+      ? err.render(lang)
+      : status >= 500
+        ? tr("حدث خطأ في الخادم، يرجى المحاولة لاحقاً", lang)
+        : tr(err?.message || "طلب غير صالح", lang);
 
   res.status(status).json({ error: message });
 });

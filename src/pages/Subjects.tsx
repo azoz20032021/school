@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Book, Plus, Trash2, ArrowRight, AlertCircle, Sparkles } from 'lucide-react';
 import { UserData } from '../types';
 import { api, ApiError } from '../lib/api';
+import { t } from '../i18n';
 
 interface SubjectsProps {
     user: UserData;
@@ -33,19 +34,19 @@ export const Subjects: React.FC<SubjectsProps> = ({ user }) => {
             setNewSubjectName('');
             setShowAddSubject(false);
             fetchSubjects();
-            alert('تمت إضافة المادة بنجاح');
+            alert(t('تمت إضافة المادة بنجاح'));
         } catch (err) {
-            alert(err instanceof ApiError ? err.message : 'حدث خطأ في الاتصال بالخادم');
+            alert(err instanceof ApiError ? err.message : t('حدث خطأ في الاتصال بالخادم'));
         }
     };
 
     const handleDeleteSubject = async (id: string) => {
-        if (confirm('هل أنت متأكد من حذف هذه المادة؟')) {
+        if (confirm(t('هل أنت متأكد من حذف هذه المادة؟'))) {
             try {
                 await api.del(`/api/admin/subjects/${id}`);
                 fetchSubjects();
             } catch (err) {
-                alert(err instanceof ApiError ? err.message : 'تعذر حذف المادة');
+                alert(err instanceof ApiError ? err.message : t('تعذر حذف المادة'));
             }
         }
     };
@@ -54,7 +55,7 @@ export const Subjects: React.FC<SubjectsProps> = ({ user }) => {
 
     if (activeSubject) {
         return (
-            <div className="p-4 md:p-6 space-y-4 md:space-y-6 pb-20 bg-slate-50 min-h-screen" dir="rtl">
+            <div className="p-4 md:p-6 space-y-4 md:space-y-6 pb-20 bg-slate-50 min-h-screen">
                 <div className="flex items-center gap-3 mb-4">
                     <button onClick={() => setActiveSubject(null)} className="p-2 bg-white rounded-full border border-slate-100 shadow-sm hover:bg-slate-50">
                         <ArrowRight className="w-4 h-4 text-slate-600" />
@@ -94,8 +95,8 @@ export const Subjects: React.FC<SubjectsProps> = ({ user }) => {
                         <div className="w-16 h-16 bg-slate-50 rounded-[2rem] flex items-center justify-center mx-auto">
                             <AlertCircle className="w-8 h-8 text-slate-300" />
                         </div>
-                        <h4 className="font-bold text-slate-800 text-sm">لا توجد درجات حالياً</h4>
-                        <p className="text-xs text-slate-400">سيظهر تقييمك فور رصده من قبل المدرس</p>
+                        <h4 className="font-bold text-slate-800 text-sm">{t('لا توجد درجات حالياً')}</h4>
+                        <p className="text-xs text-slate-400">{t('سيظهر تقييمك فور رصده من قبل المدرس')}</p>
                     </div>
                 )}
             </div>
@@ -103,11 +104,11 @@ export const Subjects: React.FC<SubjectsProps> = ({ user }) => {
     }
 
     return (
-        <div className="p-4 md:p-6 space-y-4 md:space-y-6 pb-20 bg-slate-50 min-h-screen" dir="rtl">
+        <div className="p-4 md:p-6 space-y-4 md:space-y-6 pb-20 bg-slate-50 min-h-screen">
             <div className="flex items-center justify-between mb-2">
                 <div>
-                    <h3 className="font-extrabold text-slate-900 text-2xl tracking-tight">المواد الدراسية</h3>
-                    <p className="text-slate-500 text-sm">إدارة وعرض المواد التعليمية</p>
+                    <h3 className="font-extrabold text-slate-900 text-2xl tracking-tight">{t('المواد الدراسية')}</h3>
+                    <p className="text-slate-500 text-sm">{t('إدارة وعرض المواد التعليمية')}</p>
                 </div>
                 {(user.role === 'admin' || user.role === 'assistant_admin') && (
                     <button
@@ -132,7 +133,7 @@ export const Subjects: React.FC<SubjectsProps> = ({ user }) => {
                             <Sparkles className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-400" />
                             <input
                                 type="text"
-                                placeholder="اسم المادة الجديدة (مثل: التاريخ، الجغرافيا...)"
+                                placeholder={t('اسم المادة الجديدة (مثل: التاريخ، الجغرافيا...)')}
                                 className="w-full pl-12 pr-6 py-4 rounded-2xl border border-slate-100 bg-slate-50/50 outline-none focus:border-indigo-400 focus:bg-white transition-all font-bold text-sm"
                                 value={newSubjectName}
                                 onChange={e => setNewSubjectName(e.target.value)}
@@ -140,7 +141,7 @@ export const Subjects: React.FC<SubjectsProps> = ({ user }) => {
                             />
                         </div>
                         <button type="submit" className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-slate-200">
-                            إضافة المادة الجديدة للمنهج
+                            {t('إضافة المادة الجديدة للمنهج')}
                         </button>
                     </motion.form>
                 )}
@@ -166,7 +167,7 @@ export const Subjects: React.FC<SubjectsProps> = ({ user }) => {
                             <div>
                                 <p className="font-black text-slate-800 text-sm mb-1">{sub.name}</p>
                                 <p className="text-[10px] text-slate-400 font-bold">
-                                    {user.role === 'student' ? 'مشاهدة درجاتي' : 'عرض التفاصيل'}
+                                    {user.role === 'student' ? t('مشاهدة درجاتي') : t('عرض التفاصيل')}
                                 </p>
                             </div>
                         </div>
@@ -188,8 +189,8 @@ export const Subjects: React.FC<SubjectsProps> = ({ user }) => {
                     <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
                         <Book className="w-8 h-8 text-slate-200" />
                     </div>
-                    <p className="text-slate-400 font-bold text-sm">لا توجد مواد مضافة حالياً</p>
-                    <p className="text-slate-300 text-[10px] mt-1">ابدأ بإضافة أول مادة للمنهج الدراسي</p>
+                    <p className="text-slate-400 font-bold text-sm">{t('لا توجد مواد مضافة حالياً')}</p>
+                    <p className="text-slate-300 text-[10px] mt-1">{t('ابدأ بإضافة أول مادة للمنهج الدراسي')}</p>
                 </div>
             )}
         </div>

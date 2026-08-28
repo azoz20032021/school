@@ -4,6 +4,7 @@ import { ClassData, UserData } from '../types';
 import { api, ApiError, formatMoney } from '../lib/api';
 import { isStaff } from '../context/AuthContext';
 import { Card, EmptyState, ErrorBanner, SectionTitle, Spinner, inputClass, labelClass } from '../components/ui';
+import { t } from '../i18n';
 
 type ReportKind = 'student' | 'class' | 'attendance' | 'finance';
 
@@ -24,7 +25,7 @@ const monthAgo = () => {
 const PrintHeader: React.FC<{ title: string; subtitle?: string }> = ({ title, subtitle }) => (
     <div className="hidden print:flex items-center justify-between border-b-2 border-slate-800 pb-3 mb-5">
         <div>
-            <p className="text-lg font-black">ثانوية المعالي الأهلية</p>
+            <p className="text-lg font-black">{t('ثانوية المعالي الأهلية')}</p>
             <p className="text-xs">{title}{subtitle ? ` — ${subtitle}` : ''}</p>
         </div>
         <p className="text-[10px]">تاريخ الطباعة: {new Date().toLocaleDateString('ar-EG')}</p>
@@ -86,10 +87,10 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
         try {
             let result;
             if (tab === 'student') {
-                if (!selectedStudent) throw new ApiError(400, 'يرجى اختيار الطالب');
+                if (!selectedStudent) throw new ApiError(400, t('يرجى اختيار الطالب'));
                 result = await api.get(`/api/reports/student/${selectedStudent}`);
             } else if (tab === 'class') {
-                if (!selectedClass) throw new ApiError(400, 'يرجى اختيار الصف');
+                if (!selectedClass) throw new ApiError(400, t('يرجى اختيار الصف'));
                 result = await api.get(`/api/reports/class/${selectedClass}`);
             } else if (tab === 'attendance') {
                 const params = new URLSearchParams({ from, to });
@@ -101,7 +102,7 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
             }
             setData(result);
         } catch (err) {
-            setError(err instanceof ApiError ? err.message : 'تعذر إنشاء التقرير');
+            setError(err instanceof ApiError ? err.message : t('تعذر إنشاء التقرير'));
         } finally {
             setLoading(false);
         }
@@ -114,11 +115,11 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
     }, [user.role]);
 
     return (
-        <div className="p-4 md:p-6 space-y-4" dir="rtl">
+        <div className="p-4 md:p-6 space-y-4">
             <div className="flex items-start justify-between gap-3 print:hidden">
                 <div>
-                    <h2 className="text-lg font-black text-slate-800">التقارير</h2>
-                    <p className="text-xs text-slate-400 font-medium mt-0.5">اعرض التقرير ثم اطبعه أو احفظه PDF</p>
+                    <h2 className="text-lg font-black text-slate-800">{t('التقارير')}</h2>
+                    <p className="text-xs text-slate-400 font-medium mt-0.5">{t('اعرض التقرير ثم اطبعه أو احفظه PDF')}</p>
                 </div>
                 {data && (
                     <button
@@ -126,22 +127,22 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                         className="bg-slate-800 text-white px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5 shrink-0"
                     >
                         <Printer className="w-4 h-4" />
-                        طباعة
+                        {t('طباعة')}
                     </button>
                 )}
             </div>
 
             {user.role !== 'student' && (
                 <div className="flex gap-2 overflow-x-auto no-scrollbar print:hidden">
-                    {TABS.filter((t) => isStaff(user.role) || t.key !== 'finance').map((t) => (
+                    {TABS.filter((tab_) => isStaff(user.role) || tab_.key !== 'finance').map((tab_) => (
                         <button
-                            key={t.key}
-                            onClick={() => { setTab(t.key); setData(null); }}
+                            key={tab_.key}
+                            onClick={() => { setTab(tab_.key); setData(null); }}
                             className={`px-4 py-2 rounded-xl text-xs font-black whitespace-nowrap transition-colors ${
-                                tab === t.key ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-white text-slate-500 border border-slate-100'
+                                tab === tab_.key ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-white text-slate-500 border border-slate-100'
                             }`}
                         >
-                            {t.label}
+                            {t(tab_.label)}
                         </button>
                     ))}
                 </div>
@@ -152,9 +153,9 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                     <div className="grid md:grid-cols-3 gap-3">
                         {tab === 'student' && (
                             <div className="md:col-span-2">
-                                <label className={labelClass}>الطالب</label>
+                                <label className={labelClass}>{t('الطالب')}</label>
                                 <select className={inputClass} value={selectedStudent} onChange={(e) => setSelectedStudent(e.target.value)}>
-                                    <option value="">-- اختر الطالب --</option>
+                                    <option value="">{t('-- اختر الطالب --')}</option>
                                     {students.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.uid}</option>)}
                                 </select>
                             </div>
@@ -164,7 +165,7 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                             <div>
                                 <label className={labelClass}>الصف {tab === 'class' && <span className="text-red-500">*</span>}</label>
                                 <select className={inputClass} value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)}>
-                                    <option value="">{tab === 'class' ? '-- اختر الصف --' : 'كل الصفوف'}</option>
+                                    <option value="">{tab === 'class' ? t('-- اختر الصف --') : t('كل الصفوف')}</option>
                                     {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                                 </select>
                             </div>
@@ -173,11 +174,11 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                         {tab === 'attendance' && (
                             <>
                                 <div>
-                                    <label className={labelClass}>من تاريخ</label>
+                                    <label className={labelClass}>{t('من تاريخ')}</label>
                                     <input type="date" className={inputClass} value={from} onChange={(e) => setFrom(e.target.value)} />
                                 </div>
                                 <div>
-                                    <label className={labelClass}>إلى تاريخ</label>
+                                    <label className={labelClass}>{t('إلى تاريخ')}</label>
                                     <input type="date" className={inputClass} value={to} onChange={(e) => setTo(e.target.value)} />
                                 </div>
                             </>
@@ -190,20 +191,20 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                         className="w-full md:w-auto bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-xs font-black shadow-lg shadow-indigo-100 disabled:opacity-60 flex items-center justify-center gap-1.5"
                     >
                         <FileBarChart className="w-4 h-4" />
-                        {loading ? 'جاري الإنشاء...' : 'إنشاء التقرير'}
+                        {loading ? t('جاري الإنشاء...') : t('إنشاء التقرير')}
                     </button>
                 </Card>
             )}
 
             {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
-            {loading && <Spinner label="جاري تجميع البيانات" />}
+            {loading && <Spinner label={t('جاري تجميع البيانات')} />}
 
             {data && tab === 'student' && (
                 <div className="space-y-4 print:space-y-3">
-                    <PrintHeader title="كشف الطالب" subtitle={data.student.name} />
+                    <PrintHeader title={t('كشف الطالب')} subtitle={data.student.name} />
 
                     <Card className="p-5 print:shadow-none print:border-slate-300">
-                        <SectionTitle title="بيانات الطالب" />
+                        <SectionTitle title={t('بيانات الطالب')} />
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                             {[
                                 ['الاسم', data.student.name],
@@ -221,20 +222,20 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
 
                     <div className="grid md:grid-cols-3 gap-4">
                         <Card className="p-5">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase">المعدل العام</p>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase">{t('المعدل العام')}</p>
                             <p className="text-2xl font-black text-indigo-600 mt-1">
                                 {data.grades.stats.overall_percentage ?? '—'}%
                             </p>
                         </Card>
                         <Card className="p-5">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase">نسبة الحضور</p>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase">{t('نسبة الحضور')}</p>
                             <p className="text-2xl font-black text-emerald-600 mt-1">{data.attendance.stats.rate}%</p>
                             <p className="text-[10px] text-slate-400 mt-1">
                                 {data.attendance.stats.absent} غياب من {data.attendance.stats.total} يوم
                             </p>
                         </Card>
                         <Card className="p-5">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase">المتبقي مالياً</p>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase">{t('المتبقي مالياً')}</p>
                             <p className={`text-2xl font-black mt-1 ${data.finance.is_clear ? 'text-emerald-600' : 'text-rose-600'}`}>
                                 {formatMoney(data.finance.outstanding)}
                             </p>
@@ -243,9 +244,9 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                     </div>
 
                     <Card className="p-5">
-                        <SectionTitle title="المعدل حسب المادة" />
+                        <SectionTitle title={t('المعدل حسب المادة')} />
                         {data.grades.stats.subjects.length === 0 ? (
-                            <EmptyState message="لا توجد درجات مسجلة" />
+                            <EmptyState message={t('لا توجد درجات مسجلة')} />
                         ) : (
                             <Table
                                 headers={['المادة', 'عدد التقييمات', 'المجموع', 'النسبة']}
@@ -257,9 +258,9 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                     </Card>
 
                     <Card className="p-5">
-                        <SectionTitle title="السلوك" subtitle={`درجة السلوك ${data.behavior.conduct_score}/100`} />
+                        <SectionTitle title={t('السلوك')} subtitle={`درجة السلوك ${data.behavior.conduct_score}/100`} />
                         {data.behavior.notes.length === 0 ? (
-                            <EmptyState message="لا توجد ملاحظات سلوكية" />
+                            <EmptyState message={t('لا توجد ملاحظات سلوكية')} />
                         ) : (
                             <Table
                                 headers={['التاريخ', 'النوع', 'التصنيف', 'الملاحظة']}
@@ -274,14 +275,14 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
 
             {data && tab === 'class' && (
                 <div className="space-y-4">
-                    <PrintHeader title="كشف درجات" subtitle={data.class.name} />
+                    <PrintHeader title={t('كشف درجات')} subtitle={data.class.name} />
                     <Card className="p-5">
                         <SectionTitle
                             title={data.class.name}
                             subtitle={`${data.students.length} طالب · معدل الصف ${data.class_average ?? '—'}%`}
                         />
                         {data.students.length === 0 ? (
-                            <EmptyState message="لا يوجد طلاب في هذا الصف" />
+                            <EmptyState message={t('لا يوجد طلاب في هذا الصف')} />
                         ) : (
                             <Table
                                 headers={['الطالب', 'الرقم', ...data.subjects, 'المعدل', 'الحضور', 'المتبقي']}
@@ -303,11 +304,11 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
 
             {data && tab === 'attendance' && (
                 <div className="space-y-4">
-                    <PrintHeader title="كشف الغياب" subtitle={`${data.from} إلى ${data.to}`} />
+                    <PrintHeader title={t('كشف الغياب')} subtitle={`${data.from} إلى ${data.to}`} />
                     <Card className="p-5">
-                        <SectionTitle title="ملخص الحضور" subtitle={`من ${data.from} إلى ${data.to}`} />
+                        <SectionTitle title={t('ملخص الحضور')} subtitle={`من ${data.from} إلى ${data.to}`} />
                         {data.students.length === 0 ? (
-                            <EmptyState message="لا توجد سجلات حضور في هذه الفترة" />
+                            <EmptyState message={t('لا توجد سجلات حضور في هذه الفترة')} />
                         ) : (
                             <Table
                                 headers={['الطالب', 'الرقم', 'حاضر', 'غائب', 'متأخر', 'بعذر', 'النسبة', 'هاتف ولي الأمر']}
@@ -322,10 +323,10 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
 
             {data && tab === 'finance' && (
                 <div className="space-y-4">
-                    <PrintHeader title="كشف الديون" />
+                    <PrintHeader title={t('كشف الديون')} />
                     <Card className="p-5">
                         <SectionTitle
-                            title="حالة السداد"
+                            title={t('حالة السداد')}
                             subtitle={`${data.students.filter((s: any) => !s.is_clear).length} طالب عليه مستحقات`}
                         />
                         <Table

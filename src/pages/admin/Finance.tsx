@@ -8,6 +8,7 @@ import { isAdmin, useAuth } from '../../context/AuthContext';
 import {
     Badge, Card, EmptyState, ErrorBanner, Modal, SectionTitle, Spinner, StatCard, inputClass, labelClass,
 } from '../../components/ui';
+import { t } from '../../i18n';
 
 const CATEGORIES = ['قسط دراسي', 'رسوم تسجيل', 'كتب وقرطاسية', 'نقل مدرسي', 'زي مدرسي', 'نشاطات', 'أخرى'];
 const METHODS = ['نقدي', 'تحويل بنكي', 'محفظة إلكترونية', 'شيك'];
@@ -79,7 +80,7 @@ export const Finance: React.FC = () => {
             setInvoices(inv);
             setClasses(cls);
         } catch (err) {
-            setError(err instanceof ApiError ? err.message : 'تعذر تحميل البيانات المالية');
+            setError(err instanceof ApiError ? err.message : t('تعذر تحميل البيانات المالية'));
         } finally {
             setLoading(false);
         }
@@ -122,9 +123,9 @@ export const Finance: React.FC = () => {
             setShowIssue(false);
             setIssueForm((f) => ({ ...f, amount: '', discount: '', due_date: '' }));
             await load();
-            alert(`تم إصدار الرسوم لعدد ${res.count} طالب`);
+            alert(t('تم إصدار الرسوم لعدد {count} طالب', { count: res.count }));
         } catch (err) {
-            setError(err instanceof ApiError ? err.message : 'تعذر إصدار الرسوم');
+            setError(err instanceof ApiError ? err.message : t('تعذر إصدار الرسوم'));
         } finally {
             setBusy(false);
         }
@@ -155,38 +156,38 @@ export const Finance: React.FC = () => {
             setPayingInvoice(null);
             await load();
         } catch (err) {
-            setError(err instanceof ApiError ? err.message : 'تعذر تسجيل الدفعة');
+            setError(err instanceof ApiError ? err.message : t('تعذر تسجيل الدفعة'));
         } finally {
             setBusy(false);
         }
     };
 
     const reversePayment = async (paymentId: string) => {
-        if (!confirm('هل أنت متأكد من إرجاع هذه الدفعة؟ سيتم تعديل رصيد السند.')) return;
+        if (!confirm(t('هل أنت متأكد من إرجاع هذه الدفعة؟ سيتم تعديل رصيد السند.'))) return;
         try {
             await api.del(`/api/admin/payments/${paymentId}`);
             if (payingInvoice) await openPayment(payingInvoice);
             await load();
         } catch (err) {
-            setError(err instanceof ApiError ? err.message : 'تعذر إرجاع الدفعة');
+            setError(err instanceof ApiError ? err.message : t('تعذر إرجاع الدفعة'));
         }
     };
 
-    if (loading) return <div className="p-6"><Spinner label="جاري تحميل البيانات المالية" /></div>;
+    if (loading) return <div className="p-6"><Spinner label={t('جاري تحميل البيانات المالية')} /></div>;
 
     return (
-        <div className="p-4 md:p-6 space-y-4" dir="rtl">
+        <div className="p-4 md:p-6 space-y-4">
             <div className="flex items-start justify-between gap-3">
                 <div>
-                    <h2 className="text-lg font-black text-slate-800">الإدارة المالية</h2>
-                    <p className="text-xs text-slate-400 font-medium mt-0.5">الأقساط والرسوم وحالة السداد لكل طالب</p>
+                    <h2 className="text-lg font-black text-slate-800">{t('الإدارة المالية')}</h2>
+                    <p className="text-xs text-slate-400 font-medium mt-0.5">{t('الأقساط والرسوم وحالة السداد لكل طالب')}</p>
                 </div>
                 <button
                     onClick={() => setShowIssue(true)}
                     className="bg-indigo-600 text-white px-4 py-2.5 rounded-xl text-xs font-black shadow-lg shadow-indigo-100 flex items-center gap-1.5 shrink-0"
                 >
                     <Plus className="w-4 h-4" />
-                    إصدار رسوم
+                    {t('إصدار رسوم')}
                 </button>
             </div>
 
@@ -195,32 +196,32 @@ export const Finance: React.FC = () => {
             {overview && (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                     <StatCard
-                        label="إجمالي المستحق"
+                        label={t('إجمالي المستحق')}
                         value={formatMoney(overview.total_billed)}
                         tone="indigo"
                         icon={<FileText className="w-4 h-4 opacity-50" />}
                         hint={`${overview.invoice_count} سند`}
                     />
                     <StatCard
-                        label="المحصّل"
+                        label={t('المحصّل')}
                         value={formatMoney(overview.total_collected)}
                         tone="emerald"
                         icon={<TrendingUp className="w-4 h-4 opacity-50" />}
                         hint={`نسبة التحصيل ${overview.collection_rate}%`}
                     />
                     <StatCard
-                        label="المتبقي"
+                        label={t('المتبقي')}
                         value={formatMoney(overview.outstanding)}
                         tone="rose"
                         icon={<Wallet className="w-4 h-4 opacity-50" />}
                         hint={`${overview.students_with_dues} طالب عليه مستحقات`}
                     />
                     <StatCard
-                        label="سندات متأخرة"
+                        label={t('سندات متأخرة')}
                         value={overview.overdue_invoices}
                         tone="amber"
                         icon={<CircleDollarSign className="w-4 h-4 opacity-50" />}
-                        hint="تجاوزت تاريخ الاستحقاق"
+                        hint={t('تجاوزت تاريخ الاستحقاق')}
                     />
                 </div>
             )}
@@ -233,7 +234,7 @@ export const Finance: React.FC = () => {
                             tab === 'students' ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-500'
                         }`}
                     >
-                        حالة الطلاب
+                        {t('حالة الطلاب')}
                     </button>
                     <button
                         onClick={() => setTab('invoices')}
@@ -241,7 +242,7 @@ export const Finance: React.FC = () => {
                             tab === 'invoices' ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-500'
                         }`}
                     >
-                        السندات
+                        {t('السندات')}
                     </button>
                 </div>
 
@@ -252,11 +253,11 @@ export const Finance: React.FC = () => {
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             className={`${inputClass} pr-10`}
-                            placeholder="ابحث بالاسم أو الرقم التعريفي"
+                            placeholder={t('ابحث بالاسم أو الرقم التعريفي')}
                         />
                     </div>
                     <select className={`${inputClass} md:w-52`} value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
-                        <option value="">كل الصفوف</option>
+                        <option value="">{t('كل الصفوف')}</option>
                         {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                     <button
@@ -265,7 +266,7 @@ export const Finance: React.FC = () => {
                             onlyDebtors ? 'bg-rose-50 border-rose-200 text-rose-600' : 'bg-white border-slate-200 text-slate-500'
                         }`}
                     >
-                        المتبقي عليهم فقط
+                        {t('المتبقي عليهم فقط')}
                     </button>
                 </div>
             </Card>
@@ -273,7 +274,7 @@ export const Finance: React.FC = () => {
             {tab === 'students' ? (
                 <Card>
                     {visibleStudents.length === 0 ? (
-                        <EmptyState message="لا يوجد طلاب مطابقون للبحث" />
+                        <EmptyState message={t('لا يوجد طلاب مطابقون للبحث')} />
                     ) : (
                         <div className="divide-y divide-slate-50">
                             {visibleStudents.map((s) => (
@@ -289,7 +290,7 @@ export const Finance: React.FC = () => {
                                         <div className="flex items-center gap-2 flex-wrap">
                                             <p className="font-black text-slate-800 text-sm truncate">{s.name}</p>
                                             <Badge tone={s.is_clear ? 'emerald' : s.overdue_amount > 0 ? 'rose' : 'amber'}>
-                                                {s.payment_status}
+                                                {t(s.payment_status)}
                                             </Badge>
                                         </div>
                                         <p className="text-[11px] text-slate-400 font-medium mt-0.5">
@@ -322,7 +323,7 @@ export const Finance: React.FC = () => {
             ) : (
                 <Card>
                     {visibleInvoices.length === 0 ? (
-                        <EmptyState message="لا توجد سندات مطابقة" hint="أصدر رسوماً جديدة من الزر بالأعلى" />
+                        <EmptyState message={t('لا توجد سندات مطابقة')} hint={t('أصدر رسوماً جديدة من الزر بالأعلى')} />
                     ) : (
                         <div className="divide-y divide-slate-50">
                             {visibleInvoices.map((inv) => {
@@ -335,7 +336,7 @@ export const Finance: React.FC = () => {
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 <p className="font-black text-slate-800 text-sm truncate">{inv.title}</p>
-                                                <Badge tone={view.tone}>{view.label}</Badge>
+                                                <Badge tone={view.tone}>{t(view.label)}</Badge>
                                             </div>
                                             <p className="text-[11px] text-slate-400 font-medium mt-0.5 truncate">
                                                 {inv.student_name} · {inv.student_uid}
@@ -351,7 +352,7 @@ export const Finance: React.FC = () => {
                                                 onClick={() => openPayment(inv)}
                                                 className="bg-emerald-600 text-white text-[11px] font-black px-3 py-2 rounded-xl shrink-0"
                                             >
-                                                تسديد
+                                                {t('تسديد')}
                                             </button>
                                         )}
                                     </div>
@@ -363,10 +364,10 @@ export const Finance: React.FC = () => {
             )}
 
             {/* Issue fees */}
-            <Modal open={showIssue} onClose={() => setShowIssue(false)} title="إصدار رسوم" subtitle="لطالب واحد أو صف كامل أو جميع الطلاب">
+            <Modal open={showIssue} onClose={() => setShowIssue(false)} title={t('إصدار رسوم')} subtitle={t('لطالب واحد أو صف كامل أو جميع الطلاب')}>
                 <form onSubmit={issueInvoice} className="space-y-3">
                     <div>
-                        <label className={labelClass}>الفئة المستهدفة</label>
+                        <label className={labelClass}>{t('الفئة المستهدفة')}</label>
                         <div className="grid grid-cols-3 gap-2">
                             {([
                                 { key: 'student', label: 'طالب' },
@@ -391,14 +392,14 @@ export const Finance: React.FC = () => {
 
                     {issueForm.target === 'student' && (
                         <div>
-                            <label className={labelClass}>الطالب <span className="text-red-500">*</span></label>
+                            <label className={labelClass}>{t('الطالب')} <span className="text-red-500">*</span></label>
                             <select
                                 className={inputClass}
                                 value={issueForm.student_id}
                                 onChange={(e) => setIssueForm((f) => ({ ...f, student_id: e.target.value }))}
                                 required
                             >
-                                <option value="">-- اختر الطالب --</option>
+                                <option value="">{t('-- اختر الطالب --')}</option>
                                 {students.map((s) => (
                                     <option key={s.student_id} value={s.student_id}>{s.name} — {s.uid}</option>
                                 ))}
@@ -408,14 +409,14 @@ export const Finance: React.FC = () => {
 
                     {issueForm.target === 'class' && (
                         <div>
-                            <label className={labelClass}>الصف <span className="text-red-500">*</span></label>
+                            <label className={labelClass}>{t('الصف')} <span className="text-red-500">*</span></label>
                             <select
                                 className={inputClass}
                                 value={issueForm.class_id}
                                 onChange={(e) => setIssueForm((f) => ({ ...f, class_id: e.target.value }))}
                                 required
                             >
-                                <option value="">-- اختر الصف --</option>
+                                <option value="">{t('-- اختر الصف --')}</option>
                                 {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                             </select>
                         </div>
@@ -423,7 +424,7 @@ export const Finance: React.FC = () => {
 
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className={labelClass}>العنوان <span className="text-red-500">*</span></label>
+                            <label className={labelClass}>{t('العنوان')} <span className="text-red-500">*</span></label>
                             <input
                                 className={inputClass}
                                 value={issueForm.title}
@@ -432,7 +433,7 @@ export const Finance: React.FC = () => {
                             />
                         </div>
                         <div>
-                            <label className={labelClass}>النوع</label>
+                            <label className={labelClass}>{t('النوع')}</label>
                             <select
                                 className={inputClass}
                                 value={issueForm.category}
@@ -445,7 +446,7 @@ export const Finance: React.FC = () => {
 
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className={labelClass}>المبلغ (د.ع) <span className="text-red-500">*</span></label>
+                            <label className={labelClass}>{t('المبلغ (د.ع)')} <span className="text-red-500">*</span></label>
                             <input
                                 type="number" min={1} className={inputClass} value={issueForm.amount}
                                 onChange={(e) => setIssueForm((f) => ({ ...f, amount: e.target.value }))}
@@ -453,7 +454,7 @@ export const Finance: React.FC = () => {
                             />
                         </div>
                         <div>
-                            <label className={labelClass}>الخصم (اختياري)</label>
+                            <label className={labelClass}>{t('الخصم (اختياري)')}</label>
                             <input
                                 type="number" min={0} className={inputClass} value={issueForm.discount}
                                 onChange={(e) => setIssueForm((f) => ({ ...f, discount: e.target.value }))}
@@ -463,18 +464,18 @@ export const Finance: React.FC = () => {
 
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className={labelClass}>تاريخ الاستحقاق</label>
+                            <label className={labelClass}>{t('تاريخ الاستحقاق')}</label>
                             <input
                                 type="date" className={inputClass} value={issueForm.due_date}
                                 onChange={(e) => setIssueForm((f) => ({ ...f, due_date: e.target.value }))}
                             />
                         </div>
                         <div>
-                            <label className={labelClass}>الفصل الدراسي</label>
+                            <label className={labelClass}>{t('الفصل الدراسي')}</label>
                             <input
                                 className={inputClass} value={issueForm.term}
                                 onChange={(e) => setIssueForm((f) => ({ ...f, term: e.target.value }))}
-                                placeholder="الفصل الأول"
+                                placeholder={t('الفصل الأول')}
                             />
                         </div>
                     </div>
@@ -484,7 +485,7 @@ export const Finance: React.FC = () => {
                         disabled={busy}
                         className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold text-sm shadow-lg shadow-indigo-100 disabled:opacity-60"
                     >
-                        {busy ? 'جاري الإصدار...' : 'إصدار الرسوم'}
+                        {busy ? t('جاري الإصدار...') : t('إصدار الرسوم')}
                     </button>
                 </form>
             </Modal>
@@ -493,22 +494,22 @@ export const Finance: React.FC = () => {
             <Modal
                 open={Boolean(payingInvoice)}
                 onClose={() => setPayingInvoice(null)}
-                title="تسجيل دفعة"
+                title={t('تسجيل دفعة')}
                 subtitle={payingInvoice ? `${payingInvoice.student_name} — ${payingInvoice.title}` : ''}
             >
                 {payingInvoice && (
                     <div className="space-y-4">
                         <div className="grid grid-cols-3 gap-2 text-center">
                             <div className="bg-slate-50 rounded-xl p-3">
-                                <p className="text-[9px] font-bold text-slate-400 uppercase">الإجمالي</p>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase">{t('الإجمالي')}</p>
                                 <p className="text-xs font-black text-slate-800 mt-1">{formatMoney(payingInvoice.net_amount ?? payingInvoice.amount)}</p>
                             </div>
                             <div className="bg-emerald-50 rounded-xl p-3">
-                                <p className="text-[9px] font-bold text-emerald-500 uppercase">المسدد</p>
+                                <p className="text-[9px] font-bold text-emerald-500 uppercase">{t('المسدد')}</p>
                                 <p className="text-xs font-black text-emerald-700 mt-1">{formatMoney(payingInvoice.paid_amount)}</p>
                             </div>
                             <div className="bg-rose-50 rounded-xl p-3">
-                                <p className="text-[9px] font-bold text-rose-500 uppercase">المتبقي</p>
+                                <p className="text-[9px] font-bold text-rose-500 uppercase">{t('المتبقي')}</p>
                                 <p className="text-xs font-black text-rose-700 mt-1">{formatMoney(payingInvoice.remaining)}</p>
                             </div>
                         </div>
@@ -516,7 +517,7 @@ export const Finance: React.FC = () => {
                         <form onSubmit={recordPayment} className="space-y-3">
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className={labelClass}>المبلغ <span className="text-red-500">*</span></label>
+                                    <label className={labelClass}>{t('المبلغ')} <span className="text-red-500">*</span></label>
                                     <input
                                         type="number" min={1} max={payingInvoice.remaining} className={inputClass}
                                         value={payForm.amount}
@@ -525,7 +526,7 @@ export const Finance: React.FC = () => {
                                     />
                                 </div>
                                 <div>
-                                    <label className={labelClass}>طريقة الدفع</label>
+                                    <label className={labelClass}>{t('طريقة الدفع')}</label>
                                     <select
                                         className={inputClass} value={payForm.method}
                                         onChange={(e) => setPayForm((f) => ({ ...f, method: e.target.value }))}
@@ -535,18 +536,18 @@ export const Finance: React.FC = () => {
                                 </div>
                             </div>
                             <div>
-                                <label className={labelClass}>تاريخ الدفع</label>
+                                <label className={labelClass}>{t('تاريخ الدفع')}</label>
                                 <input
                                     type="date" className={inputClass} value={payForm.paid_at}
                                     onChange={(e) => setPayForm((f) => ({ ...f, paid_at: e.target.value }))}
                                 />
                             </div>
                             <div>
-                                <label className={labelClass}>ملاحظة</label>
+                                <label className={labelClass}>{t('ملاحظة')}</label>
                                 <input
                                     className={inputClass} value={payForm.note}
                                     onChange={(e) => setPayForm((f) => ({ ...f, note: e.target.value }))}
-                                    placeholder="اسم الدافع، رقم الوصل الورقي..."
+                                    placeholder={t('اسم الدافع، رقم الوصل الورقي...')}
                                 />
                             </div>
                             <button
@@ -554,13 +555,13 @@ export const Finance: React.FC = () => {
                                 disabled={busy}
                                 className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold text-sm shadow-lg shadow-emerald-100 disabled:opacity-60"
                             >
-                                {busy ? 'جاري الحفظ...' : 'تأكيد الدفعة'}
+                                {busy ? t('جاري الحفظ...') : t('تأكيد الدفعة')}
                             </button>
                         </form>
 
                         {invoicePayments.length > 0 && (
                             <div>
-                                <SectionTitle title="الدفعات السابقة" />
+                                <SectionTitle title={t('الدفعات السابقة')} />
                                 <div className="space-y-2">
                                     {invoicePayments.map((p) => (
                                         <div key={p.id} className="bg-slate-50 rounded-xl p-3 flex items-center gap-3">
@@ -576,7 +577,7 @@ export const Finance: React.FC = () => {
                                                     onClick={() => reversePayment(p.id)}
                                                     className="text-[10px] font-black text-red-500 hover:underline shrink-0"
                                                 >
-                                                    إرجاع
+                                                    {t('إرجاع')}
                                                 </button>
                                             )}
                                         </div>

@@ -4,6 +4,7 @@ import { AuthProvider, useAuth, isStaff } from './context/AuthContext';
 import { Login } from './pages/Login';
 import { Layout } from './components/layout/Layout';
 import { UserData } from './types';
+import { I18nProvider, useI18n } from './i18n';
 
 /**
  * Everything past the login screen is loaded on demand. A student's phone no
@@ -117,12 +118,26 @@ function AppRoutes() {
   );
 }
 
+/**
+ * Remounting on language change keeps every call site a plain `t(...)` instead
+ * of a hook, at the cost of resetting screen state — acceptable for an action
+ * taken once per session.
+ */
+function LocalisedApp() {
+  const { lang } = useI18n();
+  return (
+    <AuthProvider key={lang}>
+      <AppRoutes />
+    </AuthProvider>
+  );
+}
+
 export default function App() {
   return (
-    <Router>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </Router>
+    <I18nProvider>
+      <Router>
+        <LocalisedApp />
+      </Router>
+    </I18nProvider>
   );
 }

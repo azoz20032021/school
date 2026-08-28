@@ -23,6 +23,12 @@ export class ApiError extends Error {
 export const SESSION_EXPIRED_EVENT = "school:session-expired";
 
 let token: string | null = null;
+let apiLang = "ar";
+
+/** Tells the API which language to return its messages in. */
+export function setApiLang(lang: string): void {
+  apiLang = lang;
+}
 
 export function getToken(): string | null {
   if (token === null) {
@@ -55,7 +61,7 @@ export function setToken(value: string | null): void {
 const inflight = new Map<string, Promise<any>>();
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { "X-Lang": apiLang };
   if (body !== undefined) headers["Content-Type"] = "application/json";
 
   const current = getToken();
@@ -84,7 +90,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       setToken(null);
       window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
     }
-    throw new ApiError(res.status, payload?.error || `تعذر إتمام الطلب (${res.status})`);
+    throw new ApiError(
+      res.status,
+      payload?.error ||
+        (apiLang === "en"
+          ? `Request failed (${res.status})`
+          : `تعذر إتمام الطلب (${res.status})`)
+    );
   }
 
   return payload as T;
@@ -92,11 +104,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   get<T = any>(path: string): Promise<T> {
-    const existing = inflight.get(path);
+    const key = apiLang + " " + path;
+    const existing = inflight.get(key);
     if (existing) return existing;
 
-    const promise = request<T>("GET", path).finally(() => inflight.delete(path));
-    inflight.set(path, promise);
+    const promise = request<T>("GET", path).finally(() => inflight.delete(key));
+    inflight.set(key, promise);
     return promise;
   },
   post: <T = any>(path: string, body?: unknown) => request<T>("POST", path, body ?? {}),
@@ -108,11 +121,18 @@ export const api = {
  * Formatting helpers shared by the finance screens
  * ------------------------------------------------------------------ */
 
-export const CURRENCY_LABEL = "د.ع";
+/** Currency suffix and date locale follow the active interface language. */
+export function currencyLabel(): string {
+  return apiLang === "en" ? "IQD" : "د.ع";
+}
+
+function locale(): string {
+  return apiLang === "en" ? "en-GB" : "ar-EG";
+}
 
 export function formatMoney(amount: number | null | undefined): string {
   const value = Number(amount || 0);
-  return `${value.toLocaleString("en-US")} ${CURRENCY_LABEL}`;
+  return `${value.toLocaleString("en-US")} ${currencyLabel()}`;
 }
 
 export function formatDate(value: unknown): string {
@@ -120,7 +140,7 @@ export function formatDate(value: unknown): string {
   if (typeof value === "string") return value;
   const seconds = (value as any)?.seconds;
   if (typeof seconds === "number") {
-    return new Date(seconds * 1000).toLocaleDateString("ar-EG");
+    return new Date(seconds * 1000).toLocaleDateString(locale());
   }
   return "—";
 }
@@ -128,7 +148,7 @@ export function formatDate(value: unknown): string {
 export function formatDateTime(value: unknown): string {
   const seconds = (value as any)?.seconds;
   if (typeof seconds !== "number") return typeof value === "string" ? value : "—";
-  return new Date(seconds * 1000).toLocaleString("ar-EG", {
+  return new Date(seconds * 1000).toLocaleString(locale(), {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

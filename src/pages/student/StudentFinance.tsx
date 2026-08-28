@@ -3,6 +3,7 @@ import { CheckCircle2, Receipt, Wallet } from 'lucide-react';
 import { UserData, Invoice, Payment, FinanceSummary } from '../../types';
 import { api, ApiError, formatMoney } from '../../lib/api';
 import { Badge, Card, EmptyState, ErrorBanner, SectionTitle, Spinner, StatCard } from '../../components/ui';
+import { t } from '../../i18n';
 
 interface FinancePayload {
     summary: FinanceSummary;
@@ -27,13 +28,13 @@ export const StudentFinance: React.FC<{ user: UserData }> = ({ user }) => {
         api.get<FinancePayload>(`/api/student/${user.id}/finance`)
             .then((res) => { if (!cancelled) setData(res); })
             .catch((err) => {
-                if (!cancelled) setError(err instanceof ApiError ? err.message : 'تعذر تحميل البيانات المالية');
+                if (!cancelled) setError(err instanceof ApiError ? err.message : t('تعذر تحميل البيانات المالية'));
             })
             .finally(() => { if (!cancelled) setLoading(false); });
         return () => { cancelled = true; };
     }, [user.id]);
 
-    if (loading) return <div className="p-6"><Spinner label="جاري تحميل حسابك المالي" /></div>;
+    if (loading) return <div className="p-6"><Spinner label={t('جاري تحميل حسابك المالي')} /></div>;
     if (error) return <div className="p-6"><ErrorBanner message={error} /></div>;
     if (!data) return null;
 
@@ -41,7 +42,7 @@ export const StudentFinance: React.FC<{ user: UserData }> = ({ user }) => {
     const today = new Date().toISOString().slice(0, 10);
 
     return (
-        <div className="p-4 md:p-6 space-y-5" dir="rtl">
+        <div className="p-4 md:p-6 space-y-5">
             <div
                 className={`rounded-3xl p-6 text-white shadow-xl relative overflow-hidden ${
                     summary.is_clear ? 'bg-emerald-600 shadow-emerald-100' : 'bg-rose-600 shadow-rose-100'
@@ -49,10 +50,10 @@ export const StudentFinance: React.FC<{ user: UserData }> = ({ user }) => {
             >
                 <div className="relative z-10">
                     <p className="text-white/70 text-[10px] uppercase tracking-widest font-bold mb-1">
-                        {summary.is_clear ? 'حالة الحساب' : 'المبلغ المتبقي عليك'}
+                        {summary.is_clear ? t('حالة الحساب') : t('المبلغ المتبقي عليك')}
                     </p>
                     <h3 className="text-3xl font-black">
-                        {summary.is_clear ? 'لا توجد مستحقات' : formatMoney(summary.outstanding)}
+                        {summary.is_clear ? t('لا توجد مستحقات') : formatMoney(summary.outstanding)}
                     </h3>
                     <div className="mt-4 flex gap-2 flex-wrap">
                         <div className="bg-white/20 px-3 py-1 rounded-full text-[10px] font-bold">
@@ -72,16 +73,16 @@ export const StudentFinance: React.FC<{ user: UserData }> = ({ user }) => {
             </div>
 
             <div className="grid grid-cols-3 gap-3">
-                <StatCard label="عدد السندات" value={invoices.filter((i) => i.status !== 'cancelled').length} tone="indigo" />
-                <StatCard label="مسددة" value={invoices.filter((i) => i.status === 'paid').length} tone="emerald" />
-                <StatCard label="دفعاتي" value={payments.length} tone="slate" />
+                <StatCard label={t('عدد السندات')} value={invoices.filter((i) => i.status !== 'cancelled').length} tone="indigo" />
+                <StatCard label={t('مسددة')} value={invoices.filter((i) => i.status === 'paid').length} tone="emerald" />
+                <StatCard label={t('دفعاتي')} value={payments.length} tone="slate" />
             </div>
 
             <div>
-                <SectionTitle title="الرسوم المستحقة" subtitle="تفاصيل كل سند وحالة سداده" />
+                <SectionTitle title={t('الرسوم المستحقة')} subtitle={t('تفاصيل كل سند وحالة سداده')} />
                 <Card>
                     {invoices.length === 0 ? (
-                        <EmptyState message="لا توجد رسوم مسجلة على حسابك" />
+                        <EmptyState message={t('لا توجد رسوم مسجلة على حسابك')} />
                     ) : (
                         <div className="divide-y divide-slate-50">
                             {invoices.map((inv) => {
@@ -99,8 +100,8 @@ export const StudentFinance: React.FC<{ user: UserData }> = ({ user }) => {
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2 flex-wrap">
                                                 <p className="font-black text-slate-800 text-sm truncate">{inv.title}</p>
-                                                <Badge tone={view.tone}>{view.label}</Badge>
-                                                {overdue && <Badge tone="rose">متأخر</Badge>}
+                                                <Badge tone={view.tone}>{t(view.label)}</Badge>
+                                                {overdue && <Badge tone="rose">{t('متأخر')}</Badge>}
                                             </div>
                                             <p className="text-[11px] text-slate-400 font-medium mt-0.5">
                                                 {inv.category}
@@ -126,10 +127,10 @@ export const StudentFinance: React.FC<{ user: UserData }> = ({ user }) => {
             </div>
 
             <div>
-                <SectionTitle title="سجل الدفعات" subtitle="كل مبلغ استلمته الإدارة منك" />
+                <SectionTitle title={t('سجل الدفعات')} subtitle={t('كل مبلغ استلمته الإدارة منك')} />
                 <Card>
                     {payments.length === 0 ? (
-                        <EmptyState message="لم يتم تسجيل أي دفعة بعد" />
+                        <EmptyState message={t('لم يتم تسجيل أي دفعة بعد')} />
                     ) : (
                         <div className="divide-y divide-slate-50">
                             {payments.map((p) => (

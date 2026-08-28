@@ -3,6 +3,7 @@ import { Users, BookOpen, Plus, ChevronRight, Trash2, ArrowRight, Printer, UserX
 import { ClassData, UserData } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { api, ApiError } from '../../lib/api';
+import { t } from '../../i18n';
 
 
 
@@ -78,7 +79,7 @@ export const AdminDashboard: React.FC = () => {
     const handleAddClass = async (e: React.FormEvent) => {
         e.preventDefault();
         if (selectedTeacherIds.length === 0) {
-            alert('يرجى اختيار معلم واحد على الأقل');
+            alert(t('يرجى اختيار معلم واحد على الأقل'));
             return;
         }
 
@@ -97,17 +98,17 @@ export const AdminDashboard: React.FC = () => {
             setShowAddClass(false);
             fetchData();
         } catch (err) {
-            alert(err instanceof ApiError ? err.message : 'تعذر إضافة الصف');
+            alert(err instanceof ApiError ? err.message : t('تعذر إضافة الصف'));
         }
     };
 
     const handleDeleteClass = async (id: number | string) => {
-        if (confirm('هل أنت متأكد من حذف هذا الصف؟ سيتم حذف تسجيلات الطلاب وجدول الحصص المرتبطة به.')) {
+        if (confirm(t('هل أنت متأكد من حذف هذا الصف؟ سيتم حذف تسجيلات الطلاب وجدول الحصص المرتبطة به.'))) {
             try {
                 await api.del(`/api/admin/classes/${id}`);
                 fetchData();
             } catch (err) {
-                alert(err instanceof ApiError ? err.message : 'تعذر حذف الصف');
+                alert(err instanceof ApiError ? err.message : t('تعذر حذف الصف'));
             }
         }
     };
@@ -118,7 +119,7 @@ export const AdminDashboard: React.FC = () => {
             // Includes id, name, uid, absences and outstanding balance.
             setClassStudents(await api.get<any[]>(`/api/class/${c.id}/students`));
         } catch (err) {
-            alert(err instanceof ApiError ? err.message : 'تعذر تحميل طلاب الصف');
+            alert(err instanceof ApiError ? err.message : t('تعذر تحميل طلاب الصف'));
             setSelectedClass(null);
         }
     };
@@ -127,20 +128,20 @@ export const AdminDashboard: React.FC = () => {
         if (!classId) return;
         try {
             await api.post('/api/admin/enroll', { student_id: studentId, class_id: classId });
-            alert('تم تعيين الطالب للصف بنجاح');
+            alert(t('تم تعيين الطالب للصف بنجاح'));
             fetchData();
         } catch (err) {
-            alert(err instanceof ApiError ? err.message : 'تعذر تعيين الطالب للصف');
+            alert(err instanceof ApiError ? err.message : t('تعذر تعيين الطالب للصف'));
         }
     };
 
     const handleDeleteStudent = async (id: string) => {
-        if (confirm('هل أنت متأكد من حذف هذا الطالب بشكل نهائي؟ سيتم حذف تسجيلاته وإشعاراته أيضاً.')) {
+        if (confirm(t('هل أنت متأكد من حذف هذا الطالب بشكل نهائي؟ سيتم حذف تسجيلاته وإشعاراته أيضاً.'))) {
             try {
                 await api.del(`/api/admin/students/${id}`);
                 fetchData();
             } catch (err) {
-                alert(err instanceof ApiError ? err.message : 'تعذر حذف الطالب');
+                alert(err instanceof ApiError ? err.message : t('تعذر حذف الطالب'));
             }
         }
     };
@@ -153,7 +154,7 @@ export const AdminDashboard: React.FC = () => {
             setShowAddStudent(false);
             fetchData();
         } catch (err) {
-            alert(err instanceof ApiError ? err.message : 'تعذر إضافة الطالب');
+            alert(err instanceof ApiError ? err.message : t('تعذر إضافة الطالب'));
         }
     };
 
@@ -165,18 +166,18 @@ export const AdminDashboard: React.FC = () => {
             setShowAddTeacher(false);
             fetchData();
         } catch (err) {
-            alert(err instanceof ApiError ? err.message : 'تعذر إضافة المعلم');
+            alert(err instanceof ApiError ? err.message : t('تعذر إضافة المعلم'));
         }
     };
 
     const handleDeleteTeacher = async (id: string) => {
-        if (confirm('هل أنت متأكد من حذف هذا المعلم؟ سيؤدي ذلك لحذفه من كافة الفصول المعين عليها أيضاً.')) {
+        if (confirm(t('هل أنت متأكد من حذف هذا المعلم؟ سيؤدي ذلك لحذفه من كافة الفصول المعين عليها أيضاً.'))) {
             try {
                 await api.del(`/api/admin/teachers/${id}`);
                 setViewingTeacher(null);
                 fetchData();
             } catch (err) {
-                alert(err instanceof ApiError ? err.message : 'تعذر حذف المعلم');
+                alert(err instanceof ApiError ? err.message : t('تعذر حذف المعلم'));
             }
         }
     };
@@ -189,18 +190,18 @@ export const AdminDashboard: React.FC = () => {
             setShowAddAssistant(false);
             fetchData();
         } catch (err) {
-            alert(err instanceof ApiError ? err.message : 'تعذر إضافة المساعد');
+            alert(err instanceof ApiError ? err.message : t('تعذر إضافة المساعد'));
         }
     };
 
     const handleDeleteAssistant = async (id: string) => {
-        if (confirm('هل أنت متأكد من حذف هذا المساعد؟')) {
+        if (confirm(t('هل أنت متأكد من حذف هذا المساعد؟'))) {
             try {
                 // Teachers and assistants share the endpoint - both are just users.
                 await api.del(`/api/admin/teachers/${id}`);
                 fetchData();
             } catch (err) {
-                alert(err instanceof ApiError ? err.message : 'تعذر حذف المساعد');
+                alert(err instanceof ApiError ? err.message : t('تعذر حذف المساعد'));
             }
         }
     };
@@ -239,7 +240,7 @@ export const AdminDashboard: React.FC = () => {
             alert(teacherId ? 'تم تحديث تعيين المعلمين بنجاح' : 'تمت إزالة المعلم من الصف');
             fetchData();
         } catch (err) {
-            alert(err instanceof ApiError ? err.message : 'تعذر تحديث تعيين المعلمين');
+            alert(err instanceof ApiError ? err.message : t('تعذر تحديث تعيين المعلمين'));
         }
     };
 
@@ -258,14 +259,14 @@ export const AdminDashboard: React.FC = () => {
         try {
             await api.put(`/api/admin/teachers/${teacherId}`, { subjects: newSubjects });
             // Update local state for immediate feedback.
-            setTeachers(teachers.map(t =>
-                t.id === teacherId ? { ...t, subjects: newSubjects } : t
+            setTeachers(teachers.map(teacher =>
+                teacher.id === teacherId ? { ...teacher, subjects: newSubjects } : teacher
             ));
             if (viewingTeacher && viewingTeacher.id === teacherId) {
                 setViewingTeacher({ ...viewingTeacher, subjects: newSubjects });
             }
         } catch (err) {
-            alert(err instanceof ApiError ? err.message : 'تعذر تحديث مواد المعلم');
+            alert(err instanceof ApiError ? err.message : t('تعذر تحديث مواد المعلم'));
         }
     };
 
@@ -280,33 +281,33 @@ export const AdminDashboard: React.FC = () => {
                 classId: showBroadcast.target === 'class' ? showBroadcast.id : undefined,
                 studentId: showBroadcast.target === 'student' ? showBroadcast.studentId : undefined
             });
-            alert(`تم إرسال الإشعار إلى ${result.count} طالب`);
+            alert(t('تم إرسال الإشعار إلى {count} طالب', { count: result.count }));
             setBroadcastMsg({ title: '', message: '' });
             setShowBroadcast(null);
         } catch (err) {
-            alert(err instanceof ApiError ? err.message : 'فشل إرسال الرسالة');
+            alert(err instanceof ApiError ? err.message : t('فشل إرسال الرسالة'));
         }
     };
 
     const handleGenerateUids = async () => {
-        if (!confirm('هل أنت متأكد من توليد 10 UIDs جديدة؟')) return;
+        if (!confirm(t('هل أنت متأكد من توليد 10 UIDs جديدة؟'))) return;
         try {
             await api.post('/api/admin/uids/generate', { count: 10 });
-            alert('تم توليد 10 UIDs بنجاح');
+            alert(t('تم توليد 10 UIDs بنجاح'));
             fetchData();
         } catch (err) {
-            alert(err instanceof ApiError ? err.message : 'تعذر توليد الأرقام');
+            alert(err instanceof ApiError ? err.message : t('تعذر توليد الأرقام'));
         }
     };
 
     const handleDeleteUid = async (id: string, e: React.MouseEvent) => {
         e.stopPropagation();
-        if (!confirm('هل أنت متأكد من حذف هذا الـ UID؟')) return;
+        if (!confirm(t('هل أنت متأكد من حذف هذا الـ UID؟'))) return;
         try {
             await api.del(`/api/admin/uids/${id}`);
             fetchData();
         } catch (err) {
-            alert(err instanceof ApiError ? err.message : 'فشل حذف الـ UID');
+            alert(err instanceof ApiError ? err.message : t('فشل حذف الـ UID'));
         }
     };
 
@@ -317,12 +318,12 @@ export const AdminDashboard: React.FC = () => {
             setNewCustomUid('');
             fetchData();
         } catch (err) {
-            alert(err instanceof ApiError ? err.message : 'فشل إضافة الـ UID');
+            alert(err instanceof ApiError ? err.message : t('فشل إضافة الـ UID'));
         }
     };
 
     return (
-        <div className="p-4 md:p-6 space-y-4 md:space-y-6" dir="rtl">
+        <div className="p-4 md:p-6 space-y-4 md:space-y-6">
             {!selectedClass ? (
                 <>
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
@@ -330,7 +331,7 @@ export const AdminDashboard: React.FC = () => {
                             <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center mb-3">
                                 <Users className="w-5 h-5 text-blue-600" />
                             </div>
-                            <p className="text-xs text-slate-500 font-bold">إجمالي الطلاب</p>
+                            <p className="text-xs text-slate-500 font-bold">{t('إجمالي الطلاب')}</p>
                             <p className="text-xl font-bold text-slate-800">{students.length}</p>
                         </div>
                         <button
@@ -340,17 +341,17 @@ export const AdminDashboard: React.FC = () => {
                             <div className="w-10 h-10 bg-rose-100 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                                 <UserX className="w-5 h-5 text-rose-600" />
                             </div>
-                            <p className="text-xs text-slate-500 font-bold">غيابات اليوم</p>
+                            <p className="text-xs text-slate-500 font-bold">{t('غيابات اليوم')}</p>
                             <div className="flex items-center gap-2">
                                 <p className="text-xl font-bold text-slate-800">{dailyAbsences.length}</p>
-                                <span className="text-[10px] bg-rose-500 text-white px-2 py-0.5 rounded-full">عرض الكل</span>
+                                <span className="text-[10px] bg-rose-500 text-white px-2 py-0.5 rounded-full">{t('عرض الكل')}</span>
                             </div>
                         </button>
                         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm transition-all hover:shadow-md">
                             <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center mb-3">
                                 <BookOpen className="w-5 h-5 text-purple-600" />
                             </div>
-                            <p className="text-xs text-slate-500 font-bold">الفصول الدراسية</p>
+                            <p className="text-xs text-slate-500 font-bold">{t('الفصول الدراسية')}</p>
                             <p className="text-xl font-bold text-slate-800">{classes.length}</p>
                         </div>
                         <button
@@ -359,8 +360,8 @@ export const AdminDashboard: React.FC = () => {
                         >
                             <div className="relative z-10 font-sans">
                                 <Plus className="w-5 h-5 text-amber-400 mb-2 group-hover:scale-125 transition-transform" />
-                                <p className="text-xs text-slate-400 font-bold">إرسال تعميم</p>
-                                <p className="text-sm font-black">رسالة عامة للكل</p>
+                                <p className="text-xs text-slate-400 font-bold">{t('إرسال تعميم')}</p>
+                                <p className="text-sm font-black">{t('رسالة عامة للكل')}</p>
                             </div>
                             <div className="absolute -right-4 -bottom-4 w-20 h-20 bg-indigo-500/10 rounded-full blur-2xl"></div>
                         </button>
@@ -373,13 +374,13 @@ export const AdminDashboard: React.FC = () => {
                                 <div className="p-2 bg-indigo-50 rounded-lg">
                                     <Users className="w-5 h-5 text-indigo-600" />
                                 </div>
-                                <h3 className="font-black text-slate-800">إدارة الـ UIDs للصلاحيات</h3>
+                                <h3 className="font-black text-slate-800">{t('إدارة الـ UIDs للصلاحيات')}</h3>
                             </div>
                             <button
                                 onClick={() => setShowUidManager(!showUidManager)}
                                 className="text-indigo-600 text-xs font-bold px-3 py-1.5 bg-indigo-50 rounded-full hover:bg-indigo-100 transition-colors"
                             >
-                                {showUidManager ? 'إخفاء القائمة' : 'عرض وإدارة الـ UIDs'}
+                                {showUidManager ? t('إخفاء القائمة') : t('عرض وإدارة الـ UIDs')}
                             </button>
                         </div>
 
@@ -387,21 +388,21 @@ export const AdminDashboard: React.FC = () => {
                             <div className="space-y-6 pt-2 animate-in fade-in slide-in-from-top-4 duration-300">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
-                                        <p className="text-xs font-bold text-slate-500">توليد تلقائي</p>
-                                        <p className="text-[10px] text-slate-400">يمكنك توليد 10 UIDs جديدة دفعة واحدة (تبدأ من الأرقام التسلسلية).</p>
+                                        <p className="text-xs font-bold text-slate-500">{t('توليد تلقائي')}</p>
+                                        <p className="text-[10px] text-slate-400">{t('يمكنك توليد 10 UIDs جديدة دفعة واحدة (تبدأ من الأرقام التسلسلية).')}</p>
                                         <button
                                             onClick={handleGenerateUids}
                                             className="w-full bg-indigo-600 text-white py-2.5 rounded-xl text-xs font-black shadow-lg shadow-indigo-100 active:scale-95 transition-all"
                                         >
-                                            توليد 10 UIDs جديدة
+                                            {t('توليد 10 UIDs جديدة')}
                                         </button>
                                     </div>
 
                                     <form onSubmit={handleAddCustomUid} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
-                                        <p className="text-xs font-bold text-slate-500">إضافة UID يدوي</p>
+                                        <p className="text-xs font-bold text-slate-500">{t('إضافة UID يدوي')}</p>
                                         <input
                                             type="text"
-                                            placeholder="أدخل الـ UID المخصص (مثلاً: STD-2024-001)"
+                                            placeholder={t('أدخل الـ UID المخصص (مثلاً: STD-2024-001)')}
                                             className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold outline-none font-sans"
                                             value={newCustomUid}
                                             onChange={e => setNewCustomUid(e.target.value)}
@@ -411,7 +412,7 @@ export const AdminDashboard: React.FC = () => {
                                             type="submit"
                                             className="w-full bg-slate-900 text-white py-2.5 rounded-xl text-xs font-black active:scale-95 transition-all"
                                         >
-                                            حفظ الـ UID المخصص
+                                            {t('حفظ الـ UID المخصص')}
                                         </button>
                                     </form>
                                 </div>
@@ -419,7 +420,7 @@ export const AdminDashboard: React.FC = () => {
                                 <div className="space-y-3">
                                     <div className="flex items-center justify-between px-1">
                                         <p className="text-xs font-black text-slate-700">قائمة الـ UIDs المتوفرة ({validUids.filter(u => !u.used).length})</p>
-                                        <button onClick={fetchData} className="text-[10px] text-indigo-600 font-bold hover:underline">تحديث القائمة</button>
+                                        <button onClick={fetchData} className="text-[10px] text-indigo-600 font-bold hover:underline">{t('تحديث القائمة')}</button>
                                     </div>
                                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 max-h-60 overflow-y-auto p-2 bg-white rounded-2xl border border-slate-100 font-sans">
                                         {validUids.length > 0 ? (
@@ -433,17 +434,17 @@ export const AdminDashboard: React.FC = () => {
                                                     onClick={() => {
                                                         if (!u.used) {
                                                             navigator.clipboard.writeText(u.uid);
-                                                            alert('تم نسخ الـ UID');
+                                                            alert(t('تم نسخ الـ UID'));
                                                         }
                                                     }}
-                                                    title={u.used ? 'مستخدم' : 'اضغط للنسخ'}
+                                                    title={u.used ? t('مستخدم') : t('اضغط للنسخ')}
                                                 >
                                                     <span className={u.used ? 'line-through' : ''}>{u.uid}</span>
                                                     {!u.used && (
                                                         <button
                                                             onClick={(e) => handleDeleteUid(u.id, e)}
                                                             className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
-                                                            title="حذف الـ UID"
+                                                            title={t('حذف الـ UID')}
                                                         >
                                                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-trash-2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
                                                         </button>
@@ -451,7 +452,7 @@ export const AdminDashboard: React.FC = () => {
                                                 </div>
                                             ))
                                         ) : (
-                                            <p className="col-span-full py-10 text-center text-slate-400 text-xs italic">لا توجد UIDs حالياً. قم بتوليد بعضها للبدء.</p>
+                                            <p className="col-span-full py-10 text-center text-slate-400 text-xs italic">{t('لا توجد UIDs حالياً. قم بتوليد بعضها للبدء.')}</p>
                                         )}
                                     </div>
                                 </div>
@@ -461,13 +462,13 @@ export const AdminDashboard: React.FC = () => {
 
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">
-                            <h3 className="font-bold text-slate-800">الفصول الدراسية</h3>
+                            <h3 className="font-bold text-slate-800">{t('الفصول الدراسية')}</h3>
                             {canManageClasses && (
                                 <button
                                     onClick={() => setShowAddClass(!showAddClass)}
                                     className="text-indigo-600 text-sm font-medium flex items-center gap-1"
                                 >
-                                    <Plus className="w-4 h-4" /> {showAddClass ? 'إلغاء' : 'إضافة فصل'}
+                                    <Plus className="w-4 h-4" /> {showAddClass ? t('إلغاء') : t('إضافة فصل')}
                                 </button>
                             )}
                         </div>
@@ -476,25 +477,25 @@ export const AdminDashboard: React.FC = () => {
                             <form onSubmit={handleAddClass} className="bg-white p-4 rounded-2xl border border-emerald-100 shadow-sm space-y-3">
                                 <input
                                     type="text"
-                                    placeholder="اسم الصف (مثلاً: الصف العاشر - أ)"
+                                    placeholder={t('اسم الصف (مثلاً: الصف العاشر - أ)')}
                                     className="w-full px-4 py-2 rounded-xl border border-slate-200 text-sm outline-none"
                                     value={newClassName}
                                     onChange={e => setNewClassName(e.target.value)}
                                     required
                                 />
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-bold text-slate-400 block px-1">اختر المعلمين لهذا الصف:</label>
+                                    <label className="text-[10px] font-bold text-slate-400 block px-1">{t('اختر المعلمين لهذا الصف:')}</label>
                                     <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-1 bg-slate-50 rounded-xl border border-slate-100">
-                                        {teachers.map(t => (
+                                        {teachers.map(teacher => (
                                             <button
-                                                key={t.id}
+                                                key={teacher.id}
                                                 type="button"
                                                 onClick={() => {
                                                     setSelectedTeacherIds(prev =>
-                                                        prev.includes(t.id) ? prev.filter(id => id !== t.id) : [...prev, t.id]
+                                                        prev.includes(teacher.id) ? prev.filter(id => id !== teacher.id) : [...prev, teacher.id]
                                                     );
                                                 }}
-                                                className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all border ${selectedTeacherIds.includes(t.id)
+                                                className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-all border ${selectedTeacherIds.includes(teacher.id)
                                                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-100'
                                                     : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-200'
                                                     }`}
@@ -504,11 +505,11 @@ export const AdminDashboard: React.FC = () => {
                                         ))}
                                     </div>
                                     {selectedTeacherIds.length === 0 && (
-                                        <p className="text-[9px] text-amber-500 px-1 italic">* يجب اختيار معلم واحد على الأقل</p>
+                                        <p className="text-[9px] text-amber-500 px-1 italic">{t('* يجب اختيار معلم واحد على الأقل')}</p>
                                     )}
                                 </div>
                                 <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded-xl text-sm font-bold">
-                                    إضافة الآن
+                                    {t('إضافة الآن')}
                                 </button>
                             </form>
                         )}
@@ -528,7 +529,7 @@ export const AdminDashboard: React.FC = () => {
                                             <p className="text-[10px] text-slate-500 mt-0.5 font-sans">
                                                 المعلمون: {c.teacher_names && c.teacher_names.length > 0
                                                     ? c.teacher_names.join('، ')
-                                                    : (c.teacher_name || 'لم يتم التعيين')}
+                                                    : (c.teacher_name || t('لم يتم التعيين'))}
                                             </p>
                                         </div>
                                     </div>
@@ -553,13 +554,13 @@ export const AdminDashboard: React.FC = () => {
 
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">
-                            <h3 className="font-bold text-slate-800">إدارة المعلمين</h3>
+                            <h3 className="font-bold text-slate-800">{t('إدارة المعلمين')}</h3>
                             {canManageTeachers && (
                                 <button
                                     onClick={() => setShowAddTeacher(!showAddTeacher)}
                                     className="text-indigo-600 text-sm font-medium flex items-center gap-1"
                                 >
-                                    <Plus className="w-4 h-4" /> {showAddTeacher ? 'إلغاء' : 'إضافة معلم'}
+                                    <Plus className="w-4 h-4" /> {showAddTeacher ? t('إلغاء') : t('إضافة معلم')}
                                 </button>
                             )}
                         </div>
@@ -568,7 +569,7 @@ export const AdminDashboard: React.FC = () => {
                             <form onSubmit={handleAddTeacher} className="bg-white p-4 rounded-2xl border border-indigo-100 shadow-sm space-y-3">
                                 <input
                                     type="text"
-                                    placeholder="اسم المعلم بالكامل"
+                                    placeholder={t('اسم المعلم بالكامل')}
                                     className="w-full px-4 py-2 rounded-xl border border-slate-200 text-sm outline-none"
                                     value={newTeacher.name}
                                     onChange={e => setNewTeacher({ ...newTeacher, name: e.target.value })}
@@ -576,7 +577,7 @@ export const AdminDashboard: React.FC = () => {
                                 />
                                 <input
                                     type="text"
-                                    placeholder="اسم المستخدم"
+                                    placeholder={t('اسم المستخدم')}
                                     className="w-full px-4 py-2 rounded-xl border border-slate-200 text-sm outline-none"
                                     value={newTeacher.username}
                                     onChange={e => setNewTeacher({ ...newTeacher, username: e.target.value })}
@@ -584,29 +585,29 @@ export const AdminDashboard: React.FC = () => {
                                 />
                                 <input
                                     type="password"
-                                    placeholder="كلمة المرور"
+                                    placeholder={t('كلمة المرور')}
                                     className="w-full px-4 py-2 rounded-xl border border-slate-200 text-sm outline-none"
                                     value={newTeacher.password}
                                     onChange={e => setNewTeacher({ ...newTeacher, password: e.target.value })}
                                     required
                                 />
                                 <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded-xl text-sm font-bold">
-                                    حفظ بيانات المعلم
+                                    {t('حفظ بيانات المعلم')}
                                 </button>
                             </form>
                         )}
 
                         <div className="grid grid-cols-2 gap-3 pb-4">
-                            {teachers.map(t => (
-                                <div key={t.id}
-                                    onClick={() => setViewingTeacher(t)}
+                            {teachers.map(teacher => (
+                                <div key={teacher.id}
+                                    onClick={() => setViewingTeacher(teacher)}
                                     className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center gap-2 cursor-pointer hover:border-indigo-200 transition-all font-sans"
                                 >
                                     <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold">
-                                        {t.name?.charAt(0)}
+                                        {teacher.name?.charAt(0)}
                                     </div>
-                                    <p className="font-bold text-slate-800 text-xs text-center">{t.name}</p>
-                                    <span className="text-[10px] bg-slate-50 px-2 py-0.5 rounded text-slate-400">{t.uid}</span>
+                                    <p className="font-bold text-slate-800 text-xs text-center">{teacher.name}</p>
+                                    <span className="text-[10px] bg-slate-50 px-2 py-0.5 rounded text-slate-400">{teacher.uid}</span>
                                 </div>
                             ))}
                         </div>
@@ -615,12 +616,12 @@ export const AdminDashboard: React.FC = () => {
                     {currentUser?.role === 'admin' && (
                         <div className="space-y-4">
                             <div className="flex items-center justify-between">
-                                <h3 className="font-bold text-slate-700">مساعدي الإدارة</h3>
+                                <h3 className="font-bold text-slate-700">{t('مساعدي الإدارة')}</h3>
                                 <button
                                     onClick={() => setShowAddAssistant(!showAddAssistant)}
                                     className="text-amber-600 text-sm font-medium flex items-center gap-1"
                                 >
-                                    <Plus className="w-4 h-4" /> {showAddAssistant ? 'إلغاء' : 'إضافة مساعد'}
+                                    <Plus className="w-4 h-4" /> {showAddAssistant ? t('إلغاء') : t('إضافة مساعد')}
                                 </button>
                             </div>
 
@@ -628,7 +629,7 @@ export const AdminDashboard: React.FC = () => {
                                 <form onSubmit={handleAddAssistant} className="bg-white p-4 rounded-2xl border border-amber-100 shadow-sm space-y-3">
                                     <input
                                         type="text"
-                                        placeholder="اسم المساعد"
+                                        placeholder={t('اسم المساعد')}
                                         className="w-full px-4 py-2 rounded-xl border border-slate-200 text-sm outline-none font-sans"
                                         value={newAssistant.name}
                                         onChange={e => setNewAssistant({ ...newAssistant, name: e.target.value })}
@@ -636,7 +637,7 @@ export const AdminDashboard: React.FC = () => {
                                     />
                                     <input
                                         type="text"
-                                        placeholder="اسم المستخدم للدخول"
+                                        placeholder={t('اسم المستخدم للدخول')}
                                         className="w-full px-4 py-2 rounded-xl border border-slate-200 text-sm outline-none font-sans"
                                         value={newAssistant.username}
                                         onChange={e => setNewAssistant({ ...newAssistant, username: e.target.value })}
@@ -644,14 +645,14 @@ export const AdminDashboard: React.FC = () => {
                                     />
                                     <input
                                         type="password"
-                                        placeholder="كلمة المرور"
+                                        placeholder={t('كلمة المرور')}
                                         className="w-full px-4 py-2 rounded-xl border border-slate-200 text-sm outline-none font-sans"
                                         value={newAssistant.password}
                                         onChange={e => setNewAssistant({ ...newAssistant, password: e.target.value })}
                                         required
                                     />
                                     <button type="submit" className="w-full bg-amber-600 text-white py-2 rounded-xl text-sm font-bold">
-                                        حفظ بيانات المساعد
+                                        {t('حفظ بيانات المساعد')}
                                     </button>
                                 </form>
                             )}
@@ -680,13 +681,13 @@ export const AdminDashboard: React.FC = () => {
 
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">
-                            <h3 className="font-bold text-slate-800">جميع الطلاب المسجلين</h3>
+                            <h3 className="font-bold text-slate-800">{t('جميع الطلاب المسجلين')}</h3>
                             {canManageStudents && (
                                 <button
                                     onClick={() => setShowAddStudent(!showAddStudent)}
                                     className="text-indigo-600 text-sm font-medium flex items-center gap-1"
                                 >
-                                    <Plus className="w-4 h-4" /> {showAddStudent ? 'إلغاء' : 'إضافة طالب'}
+                                    <Plus className="w-4 h-4" /> {showAddStudent ? t('إلغاء') : t('إضافة طالب')}
                                 </button>
                             )}
                         </div>
@@ -695,7 +696,7 @@ export const AdminDashboard: React.FC = () => {
                             <form onSubmit={handleAddStudent} className="bg-white p-4 rounded-2xl border border-indigo-100 shadow-sm space-y-3">
                                 <input
                                     type="text"
-                                    placeholder="اسم الطالب الكامل"
+                                    placeholder={t('اسم الطالب الكامل')}
                                     className="w-full px-4 py-2 rounded-xl border border-slate-200 text-sm outline-none font-sans"
                                     value={newStudent.name}
                                     onChange={e => setNewStudent({ ...newStudent, name: e.target.value })}
@@ -704,7 +705,7 @@ export const AdminDashboard: React.FC = () => {
                                 <div className="grid grid-cols-2 gap-2">
                                     <input
                                         type="text"
-                                        placeholder="اسم المستخدم"
+                                        placeholder={t('اسم المستخدم')}
                                         className="w-full px-4 py-2 rounded-xl border border-slate-200 text-sm outline-none font-sans"
                                         value={newStudent.username}
                                         onChange={e => setNewStudent({ ...newStudent, username: e.target.value })}
@@ -712,7 +713,7 @@ export const AdminDashboard: React.FC = () => {
                                     />
                                     <input
                                         type="text"
-                                        placeholder="الـ UID الخاص بالطالب"
+                                        placeholder={t('الـ UID الخاص بالطالب')}
                                         className="w-full px-4 py-2 rounded-xl border border-slate-200 text-sm outline-none font-sans"
                                         value={newStudent.uid}
                                         onChange={e => setNewStudent({ ...newStudent, uid: e.target.value })}
@@ -721,14 +722,14 @@ export const AdminDashboard: React.FC = () => {
                                 </div>
                                 <input
                                     type="password"
-                                    placeholder="كلمة المرور"
+                                    placeholder={t('كلمة المرور')}
                                     className="w-full px-4 py-2 rounded-xl border border-slate-200 text-sm outline-none font-sans"
                                     value={newStudent.password}
                                     onChange={e => setNewStudent({ ...newStudent, password: e.target.value })}
                                     required
                                 />
                                 <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded-xl text-sm font-bold shadow-lg shadow-indigo-100">
-                                    حفظ وإضافة الطالب
+                                    {t('حفظ وإضافة الطالب')}
                                 </button>
                             </form>
                         )}
@@ -762,7 +763,7 @@ export const AdminDashboard: React.FC = () => {
                                                 className="flex-1 px-3 py-1.5 rounded-lg border border-slate-100 text-[10px] outline-none bg-slate-50 font-sans"
                                                 defaultValue=""
                                             >
-                                                <option value="">-- تعيين لصف --</option>
+                                                <option value="">{t('-- تعيين لصف --')}</option>
                                                 {classes.map(c => (
                                                     <option key={c.id} value={c.id}>{c.name}</option>
                                                 ))}
@@ -774,7 +775,7 @@ export const AdminDashboard: React.FC = () => {
                                                 }}
                                                 className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold"
                                             >
-                                                تأكيد التعيين
+                                                {t('تأكيد التعيين')}
                                             </button>
                                         </div>
                                     )}
@@ -796,7 +797,7 @@ export const AdminDashboard: React.FC = () => {
                             onClick={() => setShowBroadcast({ target: 'class', id: selectedClass.id, name: selectedClass.name })}
                             className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-xs font-bold border border-blue-100 flex items-center gap-2"
                         >
-                            <Plus className="w-3.5 h-3.5" /> رسالة للصف
+                            <Plus className="w-3.5 h-3.5" /> {t('رسالة للصف')}
                         </button>
                     </div>
 
@@ -811,7 +812,7 @@ export const AdminDashboard: React.FC = () => {
                                         <div>
                                             <p className="text-sm font-bold text-slate-800">{s.name}</p>
                                             <div className="flex items-center gap-2 mt-0.5">
-                                                <span className="text-[10px] text-slate-400">طالب في الصف</span>
+                                                <span className="text-[10px] text-slate-400">{t('طالب في الصف')}</span>
                                                 <span className="text-[10px] font-mono bg-emerald-100 px-2 py-0.5 rounded text-emerald-700 font-bold">{s.uid}</span>
                                             </div>
                                         </div>
@@ -819,7 +820,7 @@ export const AdminDashboard: React.FC = () => {
                                     <div className="flex flex-col items-end">
                                         <div className={`px-3 py-1 rounded-lg ${s.absences > 0 ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-slate-50 text-slate-400'} flex flex-col items-center`}>
                                             <span className="text-xs font-black">{s.absences || 0}</span>
-                                            <span className="text-[8px] font-bold uppercase">غياب</span>
+                                            <span className="text-[8px] font-bold uppercase">{t('غياب')}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -827,7 +828,7 @@ export const AdminDashboard: React.FC = () => {
                         ) : (
                             <div className="p-10 text-center text-slate-400">
                                 <Users className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                                <p>لا يوجد طلاب مسجلين في هذا الصف بعد</p>
+                                <p>{t('لا يوجد طلاب مسجلين في هذا الصف بعد')}</p>
                             </div>
                         )}
                     </div>
@@ -839,9 +840,9 @@ export const AdminDashboard: React.FC = () => {
                     <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-100">
                         <div className="p-6 bg-slate-50/50 border-b border-slate-50 flex justify-between items-center">
                             <div>
-                                <h4 className="font-black text-slate-800 text-lg leading-tight">إرسال إشعار</h4>
+                                <h4 className="font-black text-slate-800 text-lg leading-tight">{t('إرسال إشعار')}</h4>
                                 <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mt-1">
-                                    {showBroadcast.target === 'all' ? 'لكل الطلاب في النظام' :
+                                    {showBroadcast.target === 'all' ? t('لكل الطلاب في النظام') :
                                         showBroadcast.target === 'class' ? `جميع طلاب صف: ${showBroadcast.name}` :
                                             `طالب محدد من صف: ${showBroadcast.name}`}
                                 </p>
@@ -853,7 +854,7 @@ export const AdminDashboard: React.FC = () => {
                         <form onSubmit={handleSendBroadcast} className="p-6 space-y-4">
                             {(showBroadcast.target === 'class' || showBroadcast.target === 'student') && (
                                 <div>
-                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 mr-1">المستهدف</label>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 mr-1">{t('المستهدف')}</label>
                                     <select
                                         className="w-full px-5 py-3 rounded-2xl border border-slate-100 bg-slate-50/50 outline-none text-sm font-bold focus:border-blue-400 transition-colors bg-white font-sans"
                                         value={showBroadcast.target === 'student' ? showBroadcast.studentId : 'all'}
@@ -866,7 +867,7 @@ export const AdminDashboard: React.FC = () => {
                                             }
                                         }}
                                     >
-                                        <option value="all">كل طلاب الصف</option>
+                                        <option value="all">{t('كل طلاب الصف')}</option>
                                         {classStudents.map(s => (
                                             <option key={s.id} value={s.id}>{s.name}</option>
                                         ))}
@@ -874,20 +875,20 @@ export const AdminDashboard: React.FC = () => {
                                 </div>
                             )}
                             <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 mr-1">عنوان الرسالة</label>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 mr-1">{t('عنوان الرسالة')}</label>
                                 <input
                                     type="text"
-                                    placeholder="مثلاً: تنبيه مهم، غداً عطلة"
+                                    placeholder={t('مثلاً: تنبيه مهم، غداً عطلة')}
                                     className="w-full px-5 py-3 rounded-2xl border border-slate-100 bg-slate-50/50 outline-none text-sm font-bold focus:border-blue-400 transition-colors"
                                     value={broadcastMsg.title}
                                     onChange={e => setBroadcastMsg({ ...broadcastMsg, title: e.target.value })}
                                 />
                             </div>
                             <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 mr-1">محتوى الرسالة</label>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 mr-1">{t('محتوى الرسالة')}</label>
                                 <textarea
                                     className="w-full px-5 py-3 rounded-2xl border border-slate-100 bg-slate-50/50 outline-none text-sm font-medium focus:border-blue-400 transition-colors h-32 resize-none"
-                                    placeholder="اكتب رسالتك هنا..."
+                                    placeholder={t('اكتب رسالتك هنا...')}
                                     value={broadcastMsg.message}
                                     onChange={e => setBroadcastMsg({ ...broadcastMsg, message: e.target.value })}
                                     required
@@ -897,7 +898,7 @@ export const AdminDashboard: React.FC = () => {
                                 type="submit"
                                 className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-slate-200 active:scale-95 transition-all"
                             >
-                                إرسال للطلاب الآن
+                                {t('إرسال للطلاب الآن')}
                             </button>
                         </form>
                     </div>
@@ -924,14 +925,14 @@ export const AdminDashboard: React.FC = () => {
 
                         <div className="p-6 space-y-6">
                             <div className="space-y-3">
-                                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">الفصول المعين عليها</h5>
+                                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">{t('الفصول المعين عليها')}</h5>
                                 <div className="space-y-2">
                                     {classes.filter(c => c.teacher_id === viewingTeacher.id || c.teacher_ids?.includes(viewingTeacher.id)).length > 0 ? (
                                         classes.filter(c => c.teacher_id === viewingTeacher.id || c.teacher_ids?.includes(viewingTeacher.id)).map(c => (
                                             <div key={c.id} className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-100/50 flex justify-between items-center group/item">
                                                 <div className="flex flex-col">
                                                     <span className="text-xs font-bold text-indigo-900">{c.name}</span>
-                                                    <span className="text-[8px] text-indigo-400 font-bold">مدرس الفصل</span>
+                                                    <span className="text-[8px] text-indigo-400 font-bold">{t('مدرس الفصل')}</span>
                                                 </div>
                                                 {canManageTeachers && (
                                                     <button
@@ -940,7 +941,7 @@ export const AdminDashboard: React.FC = () => {
                                                             handleAssignTeacherToClass('', c.id);
                                                         }}
                                                         className="w-6 h-6 bg-white border border-indigo-100 rounded-lg flex items-center justify-center text-red-400 hover:bg-red-50 hover:text-red-600 transition-all opacity-0 group-hover/item:opacity-100"
-                                                        title="إزالة التعيين"
+                                                        title={t('إزالة التعيين')}
                                                     >
                                                         <Trash2 className="w-3 h-3" />
                                                     </button>
@@ -949,14 +950,14 @@ export const AdminDashboard: React.FC = () => {
                                         ))
                                     ) : (
                                         <div className="p-4 text-center border-2 border-dashed border-slate-100 rounded-2xl">
-                                            <p className="text-[10px] text-slate-400">لم يتم تعيينه لأي فصل حالياً</p>
+                                            <p className="text-[10px] text-slate-400">{t('لم يتم تعيينه لأي فصل حالياً')}</p>
                                         </div>
                                     )}
                                 </div>
                             </div>
                             {canManageTeachers && (
                                 <div className="space-y-3 pt-2">
-                                    <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">تعيين لصف جديد</h5>
+                                    <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">{t('تعيين لصف جديد')}</h5>
                                     <select
                                         className="w-full px-5 py-3 rounded-2xl border border-slate-100 bg-slate-50 outline-none text-xs font-bold focus:border-indigo-400 transition-colors font-sans"
                                         id="teacher-assign-select"
@@ -969,7 +970,7 @@ export const AdminDashboard: React.FC = () => {
                                             }
                                         }}
                                     >
-                                        <option value="" disabled>-- اختر الصف المُراد تعيينه له --</option>
+                                        <option value="" disabled>{t('-- اختر الصف المُراد تعيينه له --')}</option>
                                         {classes.map(c => (
                                             <option key={c.id} value={c.id}>{c.name}</option>
                                         ))}
@@ -978,7 +979,7 @@ export const AdminDashboard: React.FC = () => {
                             )}
 
                             <div className="space-y-3 pt-2">
-                                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">المواد التي يدرسها</h5>
+                                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">{t('المواد التي يدرسها')}</h5>
                                 <div className="flex flex-wrap gap-2">
                                     {allSubjects.map((subObj) => {
                                         const sub = subObj.name;
@@ -999,7 +1000,7 @@ export const AdminDashboard: React.FC = () => {
                                 </div>
                                 {(allSubjects.length === 0) && (
                                     <p className="text-[9px] text-amber-500 font-bold px-1 italic">
-                                        * لم يتم تحديد أي مواد له بعد.
+                                        {t('* لم يتم تحديد أي مواد له بعد.')}
                                     </p>
                                 )}
                             </div>
@@ -1010,14 +1011,14 @@ export const AdminDashboard: React.FC = () => {
                                         onClick={() => handleDeleteTeacher(viewingTeacher.id)}
                                         className="flex-1 bg-red-50 text-red-600 py-3 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-red-100 transition-colors"
                                     >
-                                        <Trash2 className="w-4 h-4" /> حذف المعلم
+                                        <Trash2 className="w-4 h-4" /> {t('حذف المعلم')}
                                     </button>
                                 )}
                                 <button
                                     onClick={() => setViewingTeacher(null)}
                                     className="flex-1 bg-slate-100 text-slate-600 py-3 rounded-2xl font-bold text-xs"
                                 >
-                                    إغلاق
+                                    {t('إغلاق')}
                                 </button>
                             </div>
                         </div>
@@ -1035,7 +1036,7 @@ export const AdminDashboard: React.FC = () => {
                                     <UserX className="w-6 h-6" />
                                 </div>
                                 <div>
-                                    <h4 className="font-black text-slate-800 text-base">غيابات اليوم</h4>
+                                    <h4 className="font-black text-slate-800 text-base">{t('غيابات اليوم')}</h4>
                                     <p className="text-[10px] font-bold text-rose-600 tracking-widest uppercase">
                                         {new Date().toLocaleDateString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                                     </p>
@@ -1052,7 +1053,7 @@ export const AdminDashboard: React.FC = () => {
                                     <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto text-slate-300">
                                         <Users className="w-8 h-8" />
                                     </div>
-                                    <p className="text-sm font-bold text-slate-400">لا يوجد غيابات مسجلة لهذا اليوم حتى الآن</p>
+                                    <p className="text-sm font-bold text-slate-400">{t('لا يوجد غيابات مسجلة لهذا اليوم حتى الآن')}</p>
                                 </div>
                             ) : (
                                 dailyAbsences.map((abs, idx) => (
@@ -1084,7 +1085,7 @@ export const AdminDashboard: React.FC = () => {
                                 onClick={() => setShowAbsencesToday(false)}
                                 className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-slate-200 hover:bg-slate-800 transition-colors"
                             >
-                                إغلاق النافذة
+                                {t('إغلاق النافذة')}
                             </button>
                         </div>
                     </div>

@@ -6,6 +6,7 @@ import { isAdmin } from '../context/AuthContext';
 import {
     Badge, Card, EmptyState, ErrorBanner, SectionTitle, Spinner, inputClass, labelClass,
 } from '../components/ui';
+import { t } from '../i18n';
 
 const ACTION_LABEL: Record<string, string> = {
     login: 'تسجيل دخول',
@@ -55,7 +56,7 @@ export const Settings: React.FC<{ user: UserData }> = ({ user }) => {
         setAuditLoading(true);
         api.get<AuditEntry[]>('/api/admin/audit?limit=100')
             .then(setAudit)
-            .catch((err) => setAuditError(err instanceof ApiError ? err.message : 'تعذر تحميل سجل العمليات'))
+            .catch((err) => setAuditError(err instanceof ApiError ? err.message : t('تعذر تحميل سجل العمليات')))
             .finally(() => setAuditLoading(false));
     }, [user.role]);
 
@@ -65,7 +66,7 @@ export const Settings: React.FC<{ user: UserData }> = ({ user }) => {
         setMessage('');
 
         if (form.newPassword !== form.confirmPassword) {
-            setError('كلمتا المرور الجديدتان غير متطابقتين');
+            setError(t('كلمتا المرور الجديدتان غير متطابقتين'));
             return;
         }
 
@@ -78,21 +79,21 @@ export const Settings: React.FC<{ user: UserData }> = ({ user }) => {
             setForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
             setMessage('تم تغيير كلمة المرور بنجاح');
         } catch (err) {
-            setError(err instanceof ApiError ? err.message : 'تعذر تغيير كلمة المرور');
+            setError(err instanceof ApiError ? err.message : t('تعذر تغيير كلمة المرور'));
         } finally {
             setBusy(false);
         }
     };
 
     return (
-        <div className="p-4 md:p-6 space-y-5" dir="rtl">
+        <div className="p-4 md:p-6 space-y-5">
             <div>
-                <h2 className="text-lg font-black text-slate-800">الإعدادات</h2>
-                <p className="text-xs text-slate-400 font-medium mt-0.5">بيانات حسابك وأمانه</p>
+                <h2 className="text-lg font-black text-slate-800">{t('الإعدادات')}</h2>
+                <p className="text-xs text-slate-400 font-medium mt-0.5">{t('بيانات حسابك وأمانه')}</p>
             </div>
 
             <Card className="p-5">
-                <SectionTitle title="حسابي" />
+                <SectionTitle title={t('حسابي')} />
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {[
                         ['الاسم', user.name, UserIcon],
@@ -109,10 +110,10 @@ export const Settings: React.FC<{ user: UserData }> = ({ user }) => {
             </Card>
 
             <Card className="p-5">
-                <SectionTitle title="تغيير كلمة المرور" subtitle="8 أحرف على الأقل، وتحتوي على حروف وأرقام" />
+                <SectionTitle title={t('تغيير كلمة المرور')} subtitle={t('8 أحرف على الأقل، وتحتوي على حروف وأرقام')} />
                 <form onSubmit={changePassword} className="space-y-3 max-w-md">
                     <div>
-                        <label className={labelClass}>كلمة المرور الحالية</label>
+                        <label className={labelClass}>{t('كلمة المرور الحالية')}</label>
                         <input
                             type="password" autoComplete="current-password" className={inputClass}
                             value={form.currentPassword}
@@ -121,7 +122,7 @@ export const Settings: React.FC<{ user: UserData }> = ({ user }) => {
                         />
                     </div>
                     <div>
-                        <label className={labelClass}>كلمة المرور الجديدة</label>
+                        <label className={labelClass}>{t('كلمة المرور الجديدة')}</label>
                         <input
                             type="password" autoComplete="new-password" className={inputClass}
                             value={form.newPassword}
@@ -130,7 +131,7 @@ export const Settings: React.FC<{ user: UserData }> = ({ user }) => {
                         />
                     </div>
                     <div>
-                        <label className={labelClass}>تأكيد كلمة المرور الجديدة</label>
+                        <label className={labelClass}>{t('تأكيد كلمة المرور الجديدة')}</label>
                         <input
                             type="password" autoComplete="new-password" className={inputClass}
                             value={form.confirmPassword}
@@ -152,7 +153,7 @@ export const Settings: React.FC<{ user: UserData }> = ({ user }) => {
                         className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-xs font-black shadow-lg shadow-indigo-100 disabled:opacity-60 flex items-center gap-1.5"
                     >
                         <KeyRound className="w-4 h-4" />
-                        {busy ? 'جاري الحفظ...' : 'تغيير كلمة المرور'}
+                        {busy ? t('جاري الحفظ...') : t('تغيير كلمة المرور')}
                     </button>
                 </form>
             </Card>
@@ -161,8 +162,8 @@ export const Settings: React.FC<{ user: UserData }> = ({ user }) => {
                 <Card>
                     <div className="p-5 pb-0">
                         <SectionTitle
-                            title="سجل العمليات"
-                            subtitle="آخر 100 عملية على النظام — من فعلها ومتى"
+                            title={t('سجل العمليات')}
+                            subtitle={t('آخر 100 عملية على النظام — من فعلها ومتى')}
                             action={<ScrollText className="w-4 h-4 text-slate-300" />}
                         />
                     </div>
@@ -172,18 +173,18 @@ export const Settings: React.FC<{ user: UserData }> = ({ user }) => {
                     {auditLoading ? (
                         <Spinner />
                     ) : audit.length === 0 ? (
-                        <EmptyState message="لا توجد عمليات مسجلة بعد" />
+                        <EmptyState message={t('لا توجد عمليات مسجلة بعد')} />
                     ) : (
                         <div className="divide-y divide-slate-50 max-h-[32rem] overflow-y-auto">
                             {audit.map((entry) => (
                                 <div key={entry.id} className="px-5 py-3.5 flex items-start gap-3">
                                     <Badge tone={ACTION_TONE[entry.action] || 'slate'}>
-                                        {ACTION_LABEL[entry.action] || entry.action}
+                                        {t(ACTION_LABEL[entry.action] || entry.action)}
                                     </Badge>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-xs font-bold text-slate-700 leading-relaxed">{entry.summary}</p>
                                         <p className="text-[10px] text-slate-400 font-bold mt-1">
-                                            {entry.actor_name} ({ROLE_LABEL[entry.actor_role] || entry.actor_role})
+                                            {entry.actor_name} ({t(ROLE_LABEL[entry.actor_role] || entry.actor_role)})
                                             {' · '}{formatDateTime(entry.createdAt)}
                                         </p>
                                     </div>

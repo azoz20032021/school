@@ -5,6 +5,8 @@ import { Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api, ApiError } from '../lib/api';
 import { UserData } from '../types';
+import { t } from '../i18n';
+import { LanguageToggle } from '../components/ui/LanguageToggle';
 
 export const Login: React.FC = () => {
     const [uid, setUid] = useState('');
@@ -24,14 +26,14 @@ export const Login: React.FC = () => {
             });
             login(data.token, data.user);
         } catch (err) {
-            setError(err instanceof ApiError ? err.message : 'حدث خطأ في الاتصال بالخادم');
+            setError(err instanceof ApiError ? err.message : t('حدث خطأ في الاتصال بالخادم'));
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 font-sans" dir="rtl">
+        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 font-sans">
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -41,17 +43,17 @@ export const Login: React.FC = () => {
                     <div className="w-24 h-24 bg-white rounded-3xl flex items-center justify-center mb-4 shadow-sm border border-slate-50 overflow-hidden relative group">
                         <img
                             src="/logo.png"
-                            alt="شعار المدرسة"
+                            alt={t('شعار المدرسة')}
                             className="w-full h-full object-contain p-2 group-hover:scale-110 transition-transform duration-500"
                         />
                     </div>
-                    <h1 className="text-2xl font-black text-slate-800">ثانوية المعالي الأهلية</h1>
-                    <p className="text-slate-500 font-medium mt-1">نظام إدارة شؤون الطلاب</p>
+                    <h1 className="text-2xl font-black text-slate-800">{t('ثانوية المعالي الأهلية')}</h1>
+                    <p className="text-slate-500 font-medium mt-1">{t('نظام إدارة شؤون الطلاب')}</p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">الرقم التعريفي (UID)</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">{t('الرقم التعريفي (UID)')}</label>
                         <input
                             type="text"
                             inputMode="numeric"
@@ -59,19 +61,19 @@ export const Login: React.FC = () => {
                             onChange={(e) => setUid(e.target.value)}
                             autoComplete="username"
                             className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
-                            placeholder="أدخل الـ UID الخاص بك"
+                            placeholder={t('أدخل الـ UID الخاص بك')}
                             required
                         />
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">كلمة المرور</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">{t('كلمة المرور')}</label>
                         <input
                             type="password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             autoComplete="current-password"
                             className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
-                            placeholder="أدخل كلمة المرور"
+                            placeholder={t('أدخل كلمة المرور')}
                             required
                         />
                     </div>
@@ -88,16 +90,20 @@ export const Login: React.FC = () => {
                         className="w-full bg-indigo-600 text-white py-3 rounded-xl font-semibold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 disabled:opacity-60 flex items-center justify-center gap-2"
                     >
                         {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-                        {loading ? 'جاري الدخول...' : 'تسجيل الدخول'}
+                        {loading ? t('جاري الدخول...') : t('تسجيل الدخول')}
                     </button>
                 </form>
 
+                <div className="mt-5 flex justify-center">
+                    <LanguageToggle variant="full" />
+                </div>
+
                 <div className="mt-6 space-y-2 text-center">
                     <Link to="/register" className="block text-indigo-600 text-sm font-bold hover:underline">
-                        ليس لديك حساب؟ قدّم طلب تسجيل جديد
+                        {t('ليس لديك حساب؟ قدّم طلب تسجيل جديد')}
                     </Link>
                     <Link to="/register/status" className="block text-slate-500 text-xs hover:underline">
-                        لديك رقم متابعة؟ تحقق من حالة طلبك
+                        {t('لديك رقم متابعة؟ تحقق من حالة طلبك')}
                     </Link>
                 </div>
             </motion.div>

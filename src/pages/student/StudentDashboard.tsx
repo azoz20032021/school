@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, ChevronRight, ArrowRight } from 'lucide-react';
 import { UserData, ClassData } from '../../types';
 import { api } from '../../lib/api';
+import { t } from '../../i18n';
 
 interface StudentDashboardProps {
     user: UserData;
@@ -27,12 +28,12 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user }) => {
     const attendanceRate = totalAttendance > 0 ? ((presentCount / totalAttendance) * 100).toFixed(0) : 0;
 
     return (
-        <div className="p-4 md:p-6 space-y-4 md:space-y-6" dir="rtl">
+        <div className="p-4 md:p-6 space-y-4 md:space-y-6">
             {!selectedClass ? (
                 <>
                     <div className="bg-indigo-600 rounded-3xl p-6 text-white shadow-xl shadow-indigo-100 relative overflow-hidden">
                         <div className="relative z-10">
-                            <p className="text-indigo-100 text-xs uppercase tracking-wider mb-1">معدل الحضور</p>
+                            <p className="text-indigo-100 text-xs uppercase tracking-wider mb-1">{t('معدل الحضور')}</p>
                             <h3 className="text-3xl font-bold">{attendanceRate}%</h3>
                             <div className="mt-4 flex gap-2">
                                 <div className="bg-white/20 px-3 py-1 rounded-full text-[10px]">{presentCount} يوم حاضر</div>
@@ -43,7 +44,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user }) => {
                     </div>
 
                     <div className="space-y-4">
-                        <h3 className="font-bold text-slate-800">فصولي الدراسية</h3>
+                        <h3 className="font-bold text-slate-800">{t('فصولي الدراسية')}</h3>
                         <div className="space-y-3">
                             {classes.map(c => (
                                 <button
@@ -56,7 +57,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user }) => {
                                     </div>
                                     <div className="flex-1">
                                         <p className="font-bold text-slate-800 text-sm">{c.name}</p>
-                                        <p className="text-xs text-slate-500 mt-1">اضغط لعرض التفاصيل</p>
+                                        <p className="text-xs text-slate-500 mt-1">{t('اضغط لعرض التفاصيل')}</p>
                                     </div>
                                     <ChevronRight className="w-5 h-5 text-slate-300" />
                                 </button>
@@ -65,7 +66,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user }) => {
                     </div>
 
                     <div className="space-y-4">
-                        <h3 className="font-bold text-slate-800">سجل الحضور الأخير</h3>
+                        <h3 className="font-bold text-slate-800">{t('سجل الحضور الأخير')}</h3>
                         <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
                             {attendance.slice(-5).reverse().map(a => (
                                 <div key={a.id} className="p-4 border-b border-slate-50 flex items-center justify-between">
@@ -74,7 +75,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user }) => {
                                         <p className="text-[10px] text-slate-400 mt-1">{a.date}</p>
                                     </div>
                                     <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${a.status === 'present' ? 'bg-indigo-100 text-indigo-700' : 'bg-red-100 text-red-700'}`}>
-                                        {a.status === 'present' ? 'حاضر' : 'غائب'}
+                                        {a.status === 'present' ? t('حاضر') : t('غائب')}
                                     </span>
                                 </div>
                             ))}
@@ -91,7 +92,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ user }) => {
                     </div>
 
                     <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100">
-                        <h4 className="font-bold text-blue-800 text-sm mb-2">معلومات الصف</h4>
+                        <h4 className="font-bold text-blue-800 text-sm mb-2">{t('معلومات الصف')}</h4>
                         <p className="text-xs text-blue-600 leading-relaxed">
                             أهلاً بك في صف {selectedClass.name}. يمكنك هنا متابعة دروسك ومهامك الدراسية. يرجى التأكد من حضورك في الموعد المحدد.
                         </p>

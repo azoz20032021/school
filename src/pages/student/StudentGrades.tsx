@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { GraduationCap, Book, Calendar, Award, BookOpen, Star, TrendingUp } from 'lucide-react';
 import { UserData } from '../../types';
 import { api } from '../../lib/api';
+import { t } from '../../i18n';
 
 interface StudentGradesProps {
     user: UserData;
@@ -29,11 +30,11 @@ export const StudentGrades: React.FC<StudentGradesProps> = ({ user }) => {
     const subjects = [...new Set(filteredGrades.map(g => g.subject))];
 
     return (
-        <div className="p-4 md:p-8 space-y-6 pb-20 bg-slate-50 min-h-screen" dir="rtl">
+        <div className="p-4 md:p-8 space-y-6 pb-20 bg-slate-50 min-h-screen">
             {/* Header section */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h3 className="font-extrabold text-slate-900 text-2xl tracking-tight">سجلي الأكاديمي</h3>
+                    <h3 className="font-extrabold text-slate-900 text-2xl tracking-tight">{t('سجلي الأكاديمي')}</h3>
                     <p className="text-slate-500 text-sm mt-1">مرحباً {user.name}، إليك ملخص لدرجاتك</p>
                 </div>
                 <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-2xl border border-slate-100 shadow-sm self-start">
@@ -41,8 +42,8 @@ export const StudentGrades: React.FC<StudentGradesProps> = ({ user }) => {
                         <GraduationCap className="w-6 h-6 text-indigo-600" />
                     </div>
                     <div>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">الحالة الدراسية</p>
-                        <p className="text-sm font-bold text-slate-800">طالب نشط</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">{t('الحالة الدراسية')}</p>
+                        <p className="text-sm font-bold text-slate-800">{t('طالب نشط')}</p>
                     </div>
                 </div>
             </div>
@@ -55,7 +56,7 @@ export const StudentGrades: React.FC<StudentGradesProps> = ({ user }) => {
                 >
                     <div className="relative z-10">
                         <div className="flex justify-between items-start mb-4">
-                            <p className="text-indigo-100/80 text-xs font-bold uppercase tracking-widest">المعدل التراكمي</p>
+                            <p className="text-indigo-100/80 text-xs font-bold uppercase tracking-widest">{t('المعدل التراكمي')}</p>
                             <div className="p-2 bg-white/20 rounded-lg backdrop-blur-md">
                                 <TrendingUp className="w-4 h-4 text-white" />
                             </div>
@@ -64,7 +65,7 @@ export const StudentGrades: React.FC<StudentGradesProps> = ({ user }) => {
                     </div>
                     <div className="relative z-10 flex items-center gap-2 mt-2">
                         <div className="px-3 py-1 bg-white/20 rounded-full backdrop-blur-md text-[10px] font-bold">
-                            {Number(average) >= 90 ? 'ممتاز جداً' : Number(average) >= 75 ? 'جيد جداً' : Number(average) >= 50 ? 'ناجح' : 'يحتاج تحسين'}
+                            {Number(average) >= 90 ? t('ممتاز جداً') : Number(average) >= 75 ? t('جيد جداً') : Number(average) >= 50 ? t('ناجح') : t('يحتاج تحسين')}
                         </div>
                     </div>
                     <div className="absolute -left-10 -bottom-10 w-40 h-40 bg-white/10 rounded-full blur-3xl"></div>
@@ -77,14 +78,14 @@ export const StudentGrades: React.FC<StudentGradesProps> = ({ user }) => {
                             <BookOpen className="w-6 h-6 text-blue-600" />
                         </div>
                         <p className="text-2xl font-black text-slate-800">{subjects.length}</p>
-                        <p className="text-xs font-bold text-slate-400 italic">عدد المواد</p>
+                        <p className="text-xs font-bold text-slate-400 italic">{t('عدد المواد')}</p>
                     </div>
                     <div className="bg-white rounded-[2rem] p-5 border border-slate-100 shadow-sm flex flex-col justify-center items-center text-center space-y-2">
                         <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center">
                             <Star className="w-6 h-6 text-amber-500" />
                         </div>
                         <p className="text-2xl font-black text-slate-800">{grades.filter(g => (g.score / g.total) >= 0.9).length}</p>
-                        <p className="text-xs font-bold text-slate-400 italic">درجات التفوق</p>
+                        <p className="text-xs font-bold text-slate-400 italic">{t('درجات التفوق')}</p>
                     </div>
                 </div>
             </div>
@@ -109,7 +110,7 @@ export const StudentGrades: React.FC<StudentGradesProps> = ({ user }) => {
             <div className="space-y-6">
                 <div className="flex items-center gap-2 px-1">
                     <div className="w-1 h-5 bg-emerald-500 rounded-full"></div>
-                    <h4 className="font-black text-slate-800 text-sm">كشف الموارد الدراسية</h4>
+                    <h4 className="font-black text-slate-800 text-sm">{t('كشف الموارد الدراسية')}</h4>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -156,7 +157,7 @@ export const StudentGrades: React.FC<StudentGradesProps> = ({ user }) => {
                                                         <div className="flex justify-between items-center px-1">
                                                             <div className="flex items-center gap-2">
                                                                 <span className={`text-[10px] font-black uppercase text-${colorClass}-600 bg-${colorClass}-50 px-2 py-0.5 rounded-md`}>
-                                                                    {catLabel}
+                                                                    {t(catLabel)}
                                                                 </span>
                                                             </div>
                                                             <p className="text-sm font-black text-slate-800">
@@ -187,8 +188,8 @@ export const StudentGrades: React.FC<StudentGradesProps> = ({ user }) => {
                                 <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
                                     <Calendar className="w-8 h-8 text-slate-300" />
                                 </div>
-                                <h5 className="font-bold text-slate-700">لا توجد درجات في هذا القسم</h5>
-                                <p className="text-xs text-slate-400">سيتم عرض نتائجك هنا فور رصده من قبل المعلمين</p>
+                                <h5 className="font-bold text-slate-700">{t('لا توجد درجات في هذا القسم')}</h5>
+                                <p className="text-xs text-slate-400">{t('سيتم عرض نتائجك هنا فور رصده من قبل المعلمين')}</p>
                             </motion.div>
                         )}
                     </AnimatePresence>
@@ -208,8 +209,8 @@ export const StudentGrades: React.FC<StudentGradesProps> = ({ user }) => {
                                 <Award className="w-8 h-8 text-amber-500" />
                             </div>
                             <div>
-                                <h6 className="font-black text-amber-900 text-sm italic">وسام التفوق الدراسي</h6>
-                                <p className="text-[10px] text-amber-800">لقد أحرزت تقدماً مبهراً هذا الفصل!</p>
+                                <h6 className="font-black text-amber-900 text-sm italic">{t('وسام التفوق الدراسي')}</h6>
+                                <p className="text-[10px] text-amber-800">{t('لقد أحرزت تقدماً مبهراً هذا الفصل!')}</p>
                             </div>
                         </div>
                     </motion.div>

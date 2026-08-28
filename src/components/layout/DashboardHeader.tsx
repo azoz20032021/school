@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Bell, Check, CheckCheck, LogOut, Settings, User } from 'lucide-react';
 import { UserData } from '../../types';
 import { api, formatDateTime } from '../../lib/api';
+import { LanguageToggle } from '../ui/LanguageToggle';
+import { t } from '../../i18n';
 
 interface DashboardHeaderProps {
     user: UserData;
@@ -82,7 +84,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout
     return (
         <header
             className="bg-white border-b border-slate-100 px-4 md:px-6 py-3.5 sticky top-0 z-[100] flex items-center justify-between shadow-sm print:hidden"
-            dir="rtl"
+           
         >
             <div className="flex items-center gap-3 min-w-0">
                 <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-100 shrink-0">
@@ -91,13 +93,13 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout
                 <div className="min-w-0">
                     <h2 className="text-sm font-black text-slate-800 leading-tight truncate">{user.name}</h2>
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                        {ROLE_LABEL[user.role] || user.role}
+                        {t(ROLE_LABEL[user.role] || user.role)}
                     </p>
                 </div>
             </div>
 
             <div className="flex items-center gap-1.5 shrink-0">
-                <img src="/logo.png" alt="شعار المدرسة" className="w-9 h-9 object-contain hidden sm:block" />
+                <img src="/logo.png" alt={t('شعار المدرسة')} className="w-9 h-9 object-contain hidden sm:block" />
                 <div className="h-8 w-px bg-slate-100 mx-1 hidden sm:block" />
 
                 <div className="relative">
@@ -106,7 +108,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout
                         className={`p-2.5 rounded-xl transition-all relative ${
                             showNotifs ? 'bg-slate-100 text-slate-900' : 'text-slate-400 hover:bg-slate-50 hover:text-indigo-600'
                         }`}
-                        aria-label="الإشعارات"
+                        aria-label={t('الإشعارات')}
                     >
                         <Bell className="w-5 h-5" />
                         {unreadCount > 0 && (
@@ -127,14 +129,14 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout
                                     className="absolute left-0 mt-3 w-80 max-w-[calc(100vw-2rem)] bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden z-[200]"
                                 >
                                     <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
-                                        <h4 className="font-black text-slate-800 text-sm">الإشعارات</h4>
+                                        <h4 className="font-black text-slate-800 text-sm">{t('الإشعارات')}</h4>
                                         {unreadCount > 0 && (
                                             <button
                                                 onClick={markAllRead}
                                                 className="text-[10px] font-black text-indigo-600 flex items-center gap-1 hover:underline"
                                             >
                                                 <CheckCheck className="w-3 h-3" />
-                                                تعليم الكل كمقروء
+                                                {t('تعليم الكل كمقروء')}
                                             </button>
                                         )}
                                     </div>
@@ -165,7 +167,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout
                                                                 <button
                                                                     onClick={() => markAsRead(n.id)}
                                                                     className="p-1 hover:bg-white rounded-md transition-colors shrink-0"
-                                                                    aria-label="تعليم كمقروء"
+                                                                    aria-label={t('تعليم كمقروء')}
                                                                 >
                                                                     <Check className="w-3 h-3 text-emerald-500" />
                                                                 </button>
@@ -178,7 +180,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout
                                             ))
                                         ) : (
                                             <div className="p-10 text-center">
-                                                <p className="text-xs text-slate-400 font-bold">لا توجد إشعارات حالياً</p>
+                                                <p className="text-xs text-slate-400 font-bold">{t('لا توجد إشعارات حالياً')}</p>
                                             </div>
                                         )}
                                     </div>
@@ -188,10 +190,12 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout
                     </AnimatePresence>
                 </div>
 
+                <LanguageToggle />
+
                 <Link
                     to="/settings"
                     className="p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-50 rounded-xl transition-all"
-                    title="الإعدادات"
+                    title={t('الإعدادات')}
                 >
                     <Settings className="w-5 h-5" />
                 </Link>
@@ -199,7 +203,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout
                 <button
                     onClick={onLogout}
                     className="p-2.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
-                    title="تسجيل الخروج"
+                    title={t('تسجيل الخروج')}
                 >
                     <LogOut className="w-5 h-5" />
                 </button>

@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Clock, User, Trash2, Plus, Calendar } from 'lucide-react';
 import { UserData, ClassData } from '../types';
 import { api, ApiError } from '../lib/api';
+import { t } from '../i18n';
 
 interface ScheduleProps {
     user: UserData;
@@ -73,17 +74,17 @@ export const Schedule: React.FC<ScheduleProps> = ({ user }) => {
             setShowAdd(false);
             fetchSchedules(selectedClassId);
         } catch (err) {
-            alert(err instanceof ApiError ? err.message : 'تعذر إضافة الحصة');
+            alert(err instanceof ApiError ? err.message : t('تعذر إضافة الحصة'));
         }
     };
 
     const handleDeleteSession = async (id: string) => {
-        if (confirm('حذف هذه الحصة من الجدول؟')) {
+        if (confirm(t('حذف هذه الحصة من الجدول؟'))) {
             try {
                 await api.del(`/api/admin/schedules/${id}`);
                 fetchSchedules(selectedClassId);
             } catch (err) {
-                alert(err instanceof ApiError ? err.message : 'تعذر حذف الحصة');
+                alert(err instanceof ApiError ? err.message : t('تعذر حذف الحصة'));
             }
         }
     };
@@ -91,15 +92,15 @@ export const Schedule: React.FC<ScheduleProps> = ({ user }) => {
     const currentSchedule = schedules.filter(s => s.day === activeDay);
 
     return (
-        <div className="p-4 md:p-6 space-y-4 md:space-y-6" dir="rtl">
+        <div className="p-4 md:p-6 space-y-4 md:space-y-6">
             <div className="flex items-center justify-between">
-                <h3 className="font-bold text-slate-800 text-lg">الجدول الدراسي</h3>
+                <h3 className="font-bold text-slate-800 text-lg">{t('الجدول الدراسي')}</h3>
                 {(user.role === 'admin' || user.role === 'assistant_admin') && (
                     <button
                         onClick={() => setShowAdd(!showAdd)}
                         className="bg-indigo-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1"
                     >
-                        <Plus className="w-3 h-3" /> إضافة حصة
+                        <Plus className="w-3 h-3" /> {t('إضافة حصة')}
                     </button>
                 )}
             </div>
@@ -131,7 +132,7 @@ export const Schedule: React.FC<ScheduleProps> = ({ user }) => {
                         </select>
                         <input
                             type="text"
-                            placeholder="الوقت (مثلاً 08:00 ص)"
+                            placeholder={t('الوقت (مثلاً 08:00 ص)')}
                             className="px-3 py-2 rounded-xl border border-slate-100 text-xs outline-none bg-slate-50"
                             value={newSession.time}
                             onChange={e => setNewSession({ ...newSession, time: e.target.value })}
@@ -152,18 +153,18 @@ export const Schedule: React.FC<ScheduleProps> = ({ user }) => {
                         onChange={e => setNewSession({ ...newSession, teacher: e.target.value })}
                         required
                     >
-                        <option value="">-- اختر المعلم --</option>
-                        {teachers.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                        <option value="">{t('-- اختر المعلم --')}</option>
+                        {teachers.map(teacher => <option key={teacher.id} value={teacher.name}>{teacher.name}</option>)}
                     </select>
                     <input
                         type="text"
-                        placeholder="القاعة/الغرفة"
+                        placeholder={t('القاعة/الغرفة')}
                         className="w-full px-3 py-2 rounded-xl border border-slate-100 text-xs outline-none bg-slate-50"
                         value={newSession.room}
                         onChange={e => setNewSession({ ...newSession, room: e.target.value })}
                         required
                     />
-                    <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded-xl text-xs font-bold">حفظ في الجدول</button>
+                    <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded-xl text-xs font-bold">{t('حفظ في الجدول')}</button>
                 </form>
             )}
 
@@ -214,7 +215,7 @@ export const Schedule: React.FC<ScheduleProps> = ({ user }) => {
                 ) : (
                     <div className="bg-white p-10 rounded-3xl border border-slate-100 text-center text-slate-400">
                         <Calendar className="w-10 h-10 mx-auto mb-3 opacity-20" />
-                        <p className="text-sm">لا توجد حصص مجدولة لهذا اليوم</p>
+                        <p className="text-sm">{t('لا توجد حصص مجدولة لهذا اليوم')}</p>
                     </div>
                 )}
             </div>

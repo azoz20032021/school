@@ -5,6 +5,7 @@ import { api, ApiError, formatDateTime } from '../../lib/api';
 import {
     Badge, Card, EmptyState, ErrorBanner, Modal, Spinner, inputClass, labelClass,
 } from '../../components/ui';
+import { t } from '../../i18n';
 
 const TABS: { key: RegistrationStatus; label: string; icon: React.ElementType }[] = [
     { key: 'pending', label: 'قيد المراجعة', icon: Clock },
@@ -47,7 +48,7 @@ export const Registrations: React.FC = () => {
             const data = await api.get<Registration[]>(`/api/admin/registrations?status=${status}`);
             setRows(data.filter((r) => !(r as any).archived));
         } catch (err) {
-            setError(err instanceof ApiError ? err.message : 'تعذر تحميل طلبات التسجيل');
+            setError(err instanceof ApiError ? err.message : t('تعذر تحميل طلبات التسجيل'));
         } finally {
             setLoading(false);
         }
@@ -67,7 +68,7 @@ export const Registrations: React.FC = () => {
 
     const approve = async () => {
         if (!viewing) return;
-        if (!decisionClass) { setError('يرجى تحديد الصف الدراسي'); return; }
+        if (!decisionClass) { setError(t('يرجى تحديد الصف الدراسي')); return; }
 
         setBusy(true);
         setError('');
@@ -78,9 +79,9 @@ export const Registrations: React.FC = () => {
             });
             setViewing(null);
             await load(tab);
-            alert(`تمت الموافقة بنجاح. الرقم التعريفي للطالب: ${res.uid}`);
+            alert(t('تمت الموافقة بنجاح. الرقم التعريفي للطالب: {uid}', { uid: res.uid }));
         } catch (err) {
-            setError(err instanceof ApiError ? err.message : 'تعذر إتمام الموافقة');
+            setError(err instanceof ApiError ? err.message : t('تعذر إتمام الموافقة'));
         } finally {
             setBusy(false);
         }
@@ -88,7 +89,7 @@ export const Registrations: React.FC = () => {
 
     const reject = async () => {
         if (!viewing) return;
-        if (rejectReason.trim().length < 3) { setError('يرجى كتابة سبب واضح للرفض'); return; }
+        if (rejectReason.trim().length < 3) { setError(t('يرجى كتابة سبب واضح للرفض')); return; }
 
         setBusy(true);
         setError('');
@@ -97,18 +98,18 @@ export const Registrations: React.FC = () => {
             setViewing(null);
             await load(tab);
         } catch (err) {
-            setError(err instanceof ApiError ? err.message : 'تعذر رفض الطلب');
+            setError(err instanceof ApiError ? err.message : t('تعذر رفض الطلب'));
         } finally {
             setBusy(false);
         }
     };
 
     return (
-        <div className="p-4 md:p-6 space-y-4" dir="rtl">
+        <div className="p-4 md:p-6 space-y-4">
             <div>
-                <h2 className="text-lg font-black text-slate-800">طلبات التسجيل</h2>
+                <h2 className="text-lg font-black text-slate-800">{t('طلبات التسجيل')}</h2>
                 <p className="text-xs text-slate-400 font-medium mt-0.5">
-                    راجع بيانات الطالب، ثم وافق لإنشاء حسابه تلقائياً أو ارفض الطلب مع بيان السبب
+                    {t('راجع بيانات الطالب، ثم وافق لإنشاء حسابه تلقائياً أو ارفض الطلب مع بيان السبب')}
                 </p>
             </div>
 
@@ -122,7 +123,7 @@ export const Registrations: React.FC = () => {
                         }`}
                     >
                         <Icon className="w-3.5 h-3.5" />
-                        {label}
+                        {t(label)}
                     </button>
                 ))}
             </div>
@@ -131,11 +132,11 @@ export const Registrations: React.FC = () => {
 
             <Card>
                 {loading ? (
-                    <Spinner label="جاري تحميل الطلبات" />
+                    <Spinner label={t('جاري تحميل الطلبات')} />
                 ) : rows.length === 0 ? (
                     <EmptyState
-                        message={tab === 'pending' ? 'لا توجد طلبات قيد المراجعة' : 'لا توجد طلبات في هذه القائمة'}
-                        hint={tab === 'pending' ? 'ستظهر هنا فور تقديم الطلاب لطلباتهم' : undefined}
+                        message={tab === 'pending' ? t('لا توجد طلبات قيد المراجعة') : t('لا توجد طلبات في هذه القائمة')}
+                        hint={tab === 'pending' ? t('ستظهر هنا فور تقديم الطلاب لطلباتهم') : undefined}
                     />
                 ) : (
                     <div className="divide-y divide-slate-50">
@@ -151,10 +152,10 @@ export const Registrations: React.FC = () => {
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
                                         <p className="font-black text-slate-800 text-sm truncate">{row.full_name}</p>
-                                        <Badge tone={STATUS_BADGE[row.status].tone}>{STATUS_BADGE[row.status].label}</Badge>
+                                        <Badge tone={STATUS_BADGE[row.status].tone}>{t(STATUS_BADGE[row.status].label)}</Badge>
                                     </div>
                                     <p className="text-[11px] text-slate-400 font-medium mt-0.5 truncate">
-                                        {row.requested_class_name || 'بدون صف محدد'} · {row.tracking_code} · {formatDateTime(row.createdAt)}
+                                        {row.requested_class_name || t('بدون صف محدد')} · {row.tracking_code} · {formatDateTime(row.createdAt)}
                                     </p>
                                 </div>
                                 <Eye className="w-4 h-4 text-slate-300 shrink-0" />
@@ -177,56 +178,56 @@ export const Registrations: React.FC = () => {
 
                         <div className="grid md:grid-cols-2 gap-x-6">
                             <div>
-                                <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">البيانات الشخصية</p>
-                                <DetailRow label="الاسم الرباعي" value={viewing.full_name} />
-                                <DetailRow label="اسم الأم" value={viewing.mother_name} />
-                                <DetailRow label="رقم البطاقة" value={viewing.national_id} />
-                                <DetailRow label="تاريخ الميلاد" value={viewing.birth_date} />
-                                <DetailRow label="محل الولادة" value={viewing.birth_place} />
+                                <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">{t('البيانات الشخصية')}</p>
+                                <DetailRow label={t('الاسم الرباعي')} value={viewing.full_name} />
+                                <DetailRow label={t('اسم الأم')} value={viewing.mother_name} />
+                                <DetailRow label={t('رقم البطاقة')} value={viewing.national_id} />
+                                <DetailRow label={t('تاريخ الميلاد')} value={viewing.birth_date} />
+                                <DetailRow label={t('محل الولادة')} value={viewing.birth_place} />
                             </div>
                             <div>
-                                <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1 mt-4 md:mt-0">التواصل وولي الأمر</p>
-                                <DetailRow label="هاتف الطالب" value={viewing.phone} />
-                                <DetailRow label="البريد" value={viewing.email} />
-                                <DetailRow label="العنوان" value={viewing.address} />
-                                <DetailRow label="ولي الأمر" value={viewing.guardian_name} />
-                                <DetailRow label="هاتف ولي الأمر" value={viewing.guardian_phone} />
-                                <DetailRow label="صلة القرابة" value={viewing.guardian_relation} />
-                                <DetailRow label="مهنة ولي الأمر" value={viewing.guardian_job} />
+                                <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1 mt-4 md:mt-0">{t('التواصل وولي الأمر')}</p>
+                                <DetailRow label={t('هاتف الطالب')} value={viewing.phone} />
+                                <DetailRow label={t('البريد')} value={viewing.email} />
+                                <DetailRow label={t('العنوان')} value={viewing.address} />
+                                <DetailRow label={t('ولي الأمر')} value={viewing.guardian_name} />
+                                <DetailRow label={t('هاتف ولي الأمر')} value={viewing.guardian_phone} />
+                                <DetailRow label={t('صلة القرابة')} value={viewing.guardian_relation} />
+                                <DetailRow label={t('مهنة ولي الأمر')} value={viewing.guardian_job} />
                             </div>
                         </div>
 
                         <div>
-                            <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">المعلومات الدراسية</p>
-                            <DetailRow label="الصف المطلوب" value={viewing.requested_class_name} />
-                            <DetailRow label="المدرسة السابقة" value={viewing.previous_school} />
-                            <DetailRow label="آخر صف" value={viewing.last_grade} />
-                            <DetailRow label="المعدل السابق" value={viewing.last_average} />
-                            <DetailRow label="ملاحظات صحية" value={viewing.health_notes} />
-                            <DetailRow label="ملاحظات إضافية" value={viewing.notes} />
+                            <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">{t('المعلومات الدراسية')}</p>
+                            <DetailRow label={t('الصف المطلوب')} value={viewing.requested_class_name} />
+                            <DetailRow label={t('المدرسة السابقة')} value={viewing.previous_school} />
+                            <DetailRow label={t('آخر صف')} value={viewing.last_grade} />
+                            <DetailRow label={t('المعدل السابق')} value={viewing.last_average} />
+                            <DetailRow label={t('ملاحظات صحية')} value={viewing.health_notes} />
+                            <DetailRow label={t('ملاحظات إضافية')} value={viewing.notes} />
                         </div>
 
                         {viewing.status === 'pending' && mode === 'view' && (
                             <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
                                 <div>
-                                    <label className={labelClass}>الصف الذي سيُسجَّل فيه <span className="text-red-500">*</span></label>
+                                    <label className={labelClass}>{t('الصف الذي سيُسجَّل فيه')} <span className="text-red-500">*</span></label>
                                     <select className={inputClass} value={decisionClass} onChange={(e) => setDecisionClass(e.target.value)}>
-                                        <option value="">-- اختر الصف --</option>
+                                        <option value="">{t('-- اختر الصف --')}</option>
                                         {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                                     </select>
                                 </div>
                                 <div>
-                                    <label className={labelClass}>القسط الدراسي الأولي (اختياري)</label>
+                                    <label className={labelClass}>{t('القسط الدراسي الأولي (اختياري)')}</label>
                                     <input
                                         type="number"
                                         min={0}
                                         className={inputClass}
                                         value={initialFee}
                                         onChange={(e) => setInitialFee(e.target.value)}
-                                        placeholder="مثال: 750000"
+                                        placeholder={t('مثال: 750000')}
                                     />
                                     <p className="text-[10px] text-slate-400 mt-1">
-                                        عند إدخال مبلغ سيتم إصدار سند رسوم للطالب مباشرة بعد الموافقة
+                                        {t('عند إدخال مبلغ سيتم إصدار سند رسوم للطالب مباشرة بعد الموافقة')}
                                     </p>
                                 </div>
 
@@ -236,14 +237,14 @@ export const Registrations: React.FC = () => {
                                         disabled={busy}
                                         className="flex-1 bg-emerald-600 text-white py-3 rounded-xl text-sm font-bold shadow-lg shadow-emerald-100 disabled:opacity-60"
                                     >
-                                        {busy ? 'جاري التنفيذ...' : 'موافقة وإنشاء الحساب'}
+                                        {busy ? t('جاري التنفيذ...') : t('موافقة وإنشاء الحساب')}
                                     </button>
                                     <button
                                         onClick={() => { setMode('reject'); setError(''); }}
                                         disabled={busy}
                                         className="px-5 py-3 rounded-xl border border-red-200 text-red-600 text-sm font-bold hover:bg-red-50 disabled:opacity-60"
                                     >
-                                        رفض
+                                        {t('رفض')}
                                     </button>
                                 </div>
                             </div>
@@ -251,13 +252,13 @@ export const Registrations: React.FC = () => {
 
                         {viewing.status === 'pending' && mode === 'reject' && (
                             <div className="bg-red-50 border border-red-100 rounded-2xl p-4 space-y-3">
-                                <label className={labelClass}>سبب الرفض (سيظهر للطالب) <span className="text-red-500">*</span></label>
+                                <label className={labelClass}>{t('سبب الرفض (سيظهر للطالب)')} <span className="text-red-500">*</span></label>
                                 <textarea
                                     rows={3}
                                     className={inputClass}
                                     value={rejectReason}
                                     onChange={(e) => setRejectReason(e.target.value)}
-                                    placeholder="مثال: المستمسكات غير مكتملة، يرجى مراجعة الإدارة"
+                                    placeholder={t('مثال: المستمسكات غير مكتملة، يرجى مراجعة الإدارة')}
                                 />
                                 <div className="flex gap-2">
                                     <button
@@ -265,13 +266,13 @@ export const Registrations: React.FC = () => {
                                         disabled={busy}
                                         className="flex-1 bg-red-600 text-white py-3 rounded-xl text-sm font-bold disabled:opacity-60"
                                     >
-                                        {busy ? 'جاري التنفيذ...' : 'تأكيد الرفض'}
+                                        {busy ? t('جاري التنفيذ...') : t('تأكيد الرفض')}
                                     </button>
                                     <button
                                         onClick={() => setMode('view')}
                                         className="px-5 py-3 rounded-xl border border-slate-200 text-slate-600 text-sm font-bold"
                                     >
-                                        رجوع
+                                        {t('رجوع')}
                                     </button>
                                 </div>
                             </div>
@@ -279,7 +280,7 @@ export const Registrations: React.FC = () => {
 
                         {viewing.status === 'approved' && (
                             <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 text-center">
-                                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">تمت الموافقة</p>
+                                <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">{t('تمت الموافقة')}</p>
                                 <p className="text-2xl font-black text-emerald-700 mt-1" dir="ltr">{viewing.assigned_uid}</p>
                                 <p className="text-[11px] text-emerald-600 mt-1">
                                     بواسطة {viewing.reviewed_by_name} · {formatDateTime(viewing.reviewed_at)}
@@ -289,7 +290,7 @@ export const Registrations: React.FC = () => {
 
                         {viewing.status === 'rejected' && (
                             <div className="bg-red-50 border border-red-100 rounded-2xl p-4">
-                                <p className="text-[10px] font-black text-red-600 uppercase tracking-widest mb-1">سبب الرفض</p>
+                                <p className="text-[10px] font-black text-red-600 uppercase tracking-widest mb-1">{t('سبب الرفض')}</p>
                                 <p className="text-xs text-red-700 font-bold leading-relaxed">{viewing.rejection_reason}</p>
                                 <p className="text-[11px] text-red-500 mt-2">
                                     بواسطة {viewing.reviewed_by_name} · {formatDateTime(viewing.reviewed_at)}

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
+import { langOf, tt } from "./i18n.js";
 
 export type Role = "admin" | "assistant_admin" | "teacher" | "student";
 
@@ -233,7 +234,7 @@ export function rateLimit(options: { windowMs: number; max: number; keyPrefix: s
       const retryAfter = Math.ceil((windowMs - (now - bucket.hits[0])) / 1000);
       res.setHeader("Retry-After", String(retryAfter));
       return res.status(429).json({
-        error: `محاولات كثيرة جداً. يرجى المحاولة بعد ${retryAfter} ثانية`,
+        error: tt("rate.tooManyAttempts", langOf(req), { seconds: retryAfter }),
       });
     }
 

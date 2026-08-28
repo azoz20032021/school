@@ -1,6 +1,7 @@
 import React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { AlertCircle, Inbox, Loader2, X } from 'lucide-react';
+import { t } from '../../i18n';
 
 /**
  * Small shared building blocks. The dashboards were repeating the same card,
@@ -91,7 +92,7 @@ export const Modal: React.FC<{
 }> = ({ open, onClose, title, subtitle, children, wide }) => (
     <AnimatePresence>
         {open && (
-            <div className="fixed inset-0 z-[300] flex items-end md:items-center justify-center p-0 md:p-6" dir="rtl">
+            <div className="fixed inset-0 z-[300] flex items-end md:items-center justify-center p-0 md:p-6">
                 <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -115,7 +116,7 @@ export const Modal: React.FC<{
                         <button
                             onClick={onClose}
                             className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-50 rounded-xl transition-colors"
-                            aria-label="إغلاق"
+                            aria-label={t('إغلاق')}
                         >
                             <X className="w-4 h-4" />
                         </button>
@@ -147,7 +148,7 @@ export const ErrorBanner: React.FC<{ message: string; onDismiss?: () => void }> 
         <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
         <p className="flex-1 font-bold leading-relaxed">{message}</p>
         {onDismiss && (
-            <button onClick={onDismiss} className="opacity-60 hover:opacity-100" aria-label="إخفاء">
+            <button onClick={onDismiss} className="opacity-60 hover:opacity-100" aria-label={t('إخفاء')}>
                 <X className="w-3.5 h-3.5" />
             </button>
         )}
