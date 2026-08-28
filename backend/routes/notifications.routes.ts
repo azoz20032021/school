@@ -1,6 +1,16 @@
 import { Router } from "express";
-import { doc, getDoc, getDocs, query, updateDoc, where, writeBatch } from "firebase/firestore";
-import { chunk, db, fetchAll, notificationsRef } from "../lib/db.js";
+import {
+  doc,
+  getDoc,
+  getDocs,
+  limit as fsLimit,
+  orderBy,
+  query,
+  updateDoc,
+  where,
+  writeBatch,
+} from "firebase/firestore";
+import { chunk, db, fetchAll, fetchIndexed, notificationsRef } from "../lib/db.js";
 import { requireAuth } from "../lib/auth.js";
 import { forbidden, notFound, wrap } from "../lib/http.js";
 import * as v from "../lib/validate.js";
@@ -17,11 +27,33 @@ router.get(
     if (req.user!.id !== req.params.userId) throw forbidden("لا يمكنك عرض إشعارات مستخدم آخر");
 
     const max = v.num(req.query.limit, "الحد", { min: 1, max: 100, optional: true, default: 20 });
-    const rows = await fetchAll<Record<string, any>>(
-      query(notificationsRef, where("user_id", "==", req.params.userId))
+
+    /**
+     * The header polls this endpoint every minute for every signed-in user, so
+     * it is by far the most-called route in the system. It used to read the
+     * user's entire notification history and throw away all but the newest 20
+     * — after a school year that is hundreds of document reads per poll, per
+     * user. Ordering and limiting in Firestore makes it exactly `max` reads
+     * however long the history grows.
+     */
+    const rows = await fetchIndexed<Record<string, any>>(
+      query(
+        notificationsRef,
+        where("user_id", "==", req.params.userId),
+        orderBy("createdAt", "desc"),
+        fsLimit(max)
+      ),
+      async () => {
+        const all = await fetchAll<Record<string, any>>(
+          query(notificationsRef, where("user_id", "==", req.params.userId))
+        );
+        all.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+        return all.slice(0, max);
+      },
+      "notifications by user, newest first"
     );
-    rows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-    res.json(rows.slice(0, max));
+
+    res.json(rows);
   })
 );
 

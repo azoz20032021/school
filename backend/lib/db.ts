@@ -163,3 +163,30 @@ export async function fetchAll<T = DocumentData>(q: Query | CollectionReference)
   const snap = await getDocs(q as Query);
   return mapSnapshot<T>(snap);
 }
+
+/**
+ * Run a query that needs a composite index, falling back to an unindexed read
+ * if that index has not been deployed yet.
+ *
+ * Firestore answers a query whose index is missing with `failed-precondition`
+ * rather than a slow result, so shipping the code before running
+ * `firebase deploy --only firestore:indexes` would otherwise break the page.
+ * The fallback is the old behaviour — correct, just expensive — and it logs
+ * loudly so the missing index does not go unnoticed.
+ */
+export async function fetchIndexed<T = DocumentData>(
+  indexed: Query,
+  fallback: () => Promise<WithId<T>[]>,
+  label: string
+): Promise<WithId<T>[]> {
+  try {
+    return await fetchAll<T>(indexed);
+  } catch (err: any) {
+    if (err?.code !== "failed-precondition") throw err;
+    console.warn(
+      `[db] no Firestore index for "${label}" — falling back to a full collection read.\n` +
+        `     Run: firebase deploy --only firestore:indexes`
+    );
+    return fallback();
+  }
+}

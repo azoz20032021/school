@@ -6,6 +6,7 @@ import {
   getDoc,
   getDocs,
   limit as fsLimit,
+  orderBy,
   query,
   serverTimestamp,
   updateDoc,
@@ -19,6 +20,7 @@ import {
   db,
   enrollmentsRef,
   fetchAll,
+  fetchIndexed,
   notificationsRef,
   usersRef,
   validUidsRef,
@@ -429,9 +431,26 @@ router.get(
     if (req.query.action) filters.push(where("action", "==", String(req.query.action)));
     if (req.query.actor_id) filters.push(where("actor_id", "==", String(req.query.actor_id)));
 
-    const rows = await fetchAll<Record<string, any>>(filters.length ? query(auditRef, ...filters) : auditRef);
-    rows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-    res.json(rows.slice(0, max));
+    /**
+     * The audit log only ever grows — every login and every mutation appends a
+     * row. Reading the whole collection to display the newest hundred meant a
+     * single page view cost as many document reads as there were entries, which
+     * after a term is tens of thousands. Firestore now does the ordering and
+     * the cut, so the cost is fixed at `max` regardless of history size.
+     */
+    const rows = await fetchIndexed<Record<string, any>>(
+      query(auditRef, ...filters, orderBy("createdAt", "desc"), fsLimit(max)),
+      async () => {
+        const all = await fetchAll<Record<string, any>>(
+          filters.length ? query(auditRef, ...filters) : auditRef
+        );
+        all.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+        return all.slice(0, max);
+      },
+      "audit log, newest first"
+    );
+
+    res.json(rows);
   })
 );
 
