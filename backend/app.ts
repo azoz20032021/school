@@ -54,15 +54,27 @@ app.use(attachUser);
  * the endpoint: a reply here means the function booted and the problem is the
  * database, while no reply at all means the function itself failed to start.
  */
-app.get("/api/health", (_req, res) => {
-  // Kick off the sign-in so the UID below is populated, but never block on it.
-  void ensureDbAuth().catch(() => {});
+app.get("/api/health", async (_req, res) => {
+  // Wait for the sign-in so `server_uid` is actually populated — a cold
+  // serverless instance has not signed in yet when the request arrives. Bounded
+  // by a timeout so a hanging or failing sign-in still yields a response.
+  let auth_error: string | null = null;
+  try {
+    await Promise.race([
+      ensureDbAuth(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 8000)),
+    ]);
+  } catch (err: any) {
+    auth_error = err?.code || err?.message || "sign-in failed";
+  }
+
   res.json({
     ok: true,
     time: new Date().toISOString(),
     db_auth_configured: dbAuthConfigured,
     // Not a secret: this is the value that belongs in firestore.rules.
     server_uid: getServerUid(),
+    auth_error,
   });
 });
 
