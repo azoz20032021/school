@@ -3,7 +3,7 @@ import "./lib/env.js";
 
 import express, { type NextFunction, type Request, type Response } from "express";
 import { addDoc, getDocs, limit as fsLimit, query, serverTimestamp, where } from "firebase/firestore";
-import { dbAuthConfigured, ensureDbAuth, subjectsRef, usersRef } from "./lib/db.js";
+import { dbAuthConfigured, ensureDbAuth, getServerUid, subjectsRef, usersRef } from "./lib/db.js";
 import { attachUser, hashPassword, rateLimit } from "./lib/auth.js";
 import { HttpError } from "./lib/http.js";
 import { ValidationError } from "./lib/validate.js";
@@ -55,10 +55,14 @@ app.use(attachUser);
  * database, while no reply at all means the function itself failed to start.
  */
 app.get("/api/health", (_req, res) => {
+  // Kick off the sign-in so the UID below is populated, but never block on it.
+  void ensureDbAuth().catch(() => {});
   res.json({
     ok: true,
     time: new Date().toISOString(),
     db_auth_configured: dbAuthConfigured,
+    // Not a secret: this is the value that belongs in firestore.rules.
+    server_uid: getServerUid(),
   });
 });
 

@@ -49,6 +49,12 @@ const serverEmail = process.env.FIREBASE_SERVER_EMAIL;
 const serverPassword = process.env.FIREBASE_SERVER_PASSWORD;
 
 let signInPromise: Promise<void> | null = null;
+let serverUid: string | null = null;
+
+/** UID the server authenticated as — this is what firestore.rules must allow. */
+export function getServerUid(): string | null {
+  return serverUid;
+}
 
 export const dbAuthConfigured = Boolean(serverEmail && serverPassword);
 
@@ -78,8 +84,12 @@ export function ensureDbAuth(): Promise<void> {
       .then(({ getAuth, signInWithEmailAndPassword }) =>
         signInWithEmailAndPassword(getAuth(firebaseApp), serverEmail!, serverPassword!)
       )
-      .then(() => {
-        console.log("[db] signed in to Firestore as the server service account");
+      .then((credential) => {
+        // Record the UID we actually authenticated as. This is the value that
+        // has to appear in firestore.rules, and reading it back from the
+        // running server removes any doubt about which account is in use.
+        serverUid = credential.user.uid;
+        console.log(`[db] signed in to Firestore as ${serverUid}`);
       })
       .catch((err) => {
         // Clear it so the next request retries rather than failing forever.
