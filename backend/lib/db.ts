@@ -45,8 +45,9 @@ export const db = getFirestore(firebaseApp);
  * it warns, because that means the rules must still be permissive.
  * ------------------------------------------------------------------ */
 
-const serverEmail = process.env.FIREBASE_SERVER_EMAIL;
-const serverPassword = process.env.FIREBASE_SERVER_PASSWORD;
+const cleanEnv = (val?: string) => (val ? val.trim().replace(/^["']|["']$/g, "") : "");
+const serverEmail = cleanEnv(process.env.FIREBASE_SERVER_EMAIL);
+const serverPassword = cleanEnv(process.env.FIREBASE_SERVER_PASSWORD);
 
 let signInPromise: Promise<void> | null = null;
 let serverUid: string | null = null;
@@ -81,9 +82,15 @@ export function ensureDbAuth(): Promise<void> {
     // it to the browser build would otherwise crash the whole function at
     // import time — taking down even routes that never touch the database.
     signInPromise = import("firebase/auth")
-      .then(({ getAuth, signInWithEmailAndPassword }) =>
-        signInWithEmailAndPassword(getAuth(firebaseApp), serverEmail!, serverPassword!)
-      )
+      .then(({ getAuth, initializeAuth, inMemoryPersistence, signInWithEmailAndPassword }) => {
+        let auth: any;
+        try {
+          auth = getAuth(firebaseApp);
+        } catch {
+          auth = initializeAuth(firebaseApp, { persistence: inMemoryPersistence });
+        }
+        return signInWithEmailAndPassword(auth, serverEmail!, serverPassword!);
+      })
       .then((credential) => {
         // Record the UID we actually authenticated as. This is the value that
         // has to appear in firestore.rules, and reading it back from the

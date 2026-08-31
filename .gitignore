@@ -34,4 +34,7 @@ firebase-debug.*.log
 
 # env
 .env
-.env.local
+.env.*
+*.env
+**/.env
+
