@@ -8,25 +8,50 @@ import { UserData } from './types';
 import { I18nProvider, useI18n } from './i18n';
 
 /**
+ * Wraps dynamic imports with automatic recovery when a new build is deployed.
+ * If the server replaced chunk hashes, it forces one fresh page reload instead of crashing.
+ */
+function lazyRetry<T extends React.ComponentType<any>>(
+  factory: () => Promise<{ default: T } | any>
+) {
+  return lazy(async () => {
+    const hasRefreshed = sessionStorage.getItem('chunk_retry') === 'true';
+    try {
+      const module = await factory();
+      sessionStorage.removeItem('chunk_retry');
+      return 'default' in module ? module : { default: module };
+    } catch (error) {
+      if (!hasRefreshed) {
+        sessionStorage.setItem('chunk_retry', 'true');
+        window.location.reload();
+        return new Promise(() => {});
+      }
+      sessionStorage.removeItem('chunk_retry');
+      throw error;
+    }
+  });
+}
+
+/**
  * Everything past the login screen is loaded on demand. A student's phone no
  * longer downloads the admin dashboard, the finance ledger and the report
  * builder just to see their own grades.
  */
-const Register = lazy(() => import('./pages/Register').then((m) => ({ default: m.Register })));
-const RegistrationStatus = lazy(() => import('./pages/RegistrationStatus').then((m) => ({ default: m.RegistrationStatus })));
-const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard').then((m) => ({ default: m.AdminDashboard })));
-const Registrations = lazy(() => import('./pages/admin/Registrations').then((m) => ({ default: m.Registrations })));
-const Finance = lazy(() => import('./pages/admin/Finance').then((m) => ({ default: m.Finance })));
-const TeacherDashboard = lazy(() => import('./pages/teacher/TeacherDashboard').then((m) => ({ default: m.TeacherDashboard })));
-const StudentDashboard = lazy(() => import('./pages/student/StudentDashboard').then((m) => ({ default: m.StudentDashboard })));
-const StudentFinance = lazy(() => import('./pages/student/StudentFinance').then((m) => ({ default: m.StudentFinance })));
-const StudentGrades = lazy(() => import('./pages/student/StudentGrades').then((m) => ({ default: m.StudentGrades })));
-const Subjects = lazy(() => import('./pages/Subjects').then((m) => ({ default: m.Subjects })));
-const Schedule = lazy(() => import('./pages/Schedule').then((m) => ({ default: m.Schedule })));
-const GradesManagement = lazy(() => import('./pages/GradesManagement').then((m) => ({ default: m.GradesManagement })));
-const Behavior = lazy(() => import('./pages/Behavior').then((m) => ({ default: m.Behavior })));
-const Reports = lazy(() => import('./pages/Reports').then((m) => ({ default: m.Reports })));
-const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })));
+const Register = lazyRetry(() => import('./pages/Register').then((m) => ({ default: m.Register })));
+const RegistrationStatus = lazyRetry(() => import('./pages/RegistrationStatus').then((m) => ({ default: m.RegistrationStatus })));
+const AdminDashboard = lazyRetry(() => import('./pages/admin/AdminDashboard').then((m) => ({ default: m.AdminDashboard })));
+const Registrations = lazyRetry(() => import('./pages/admin/Registrations').then((m) => ({ default: m.Registrations })));
+const Finance = lazyRetry(() => import('./pages/admin/Finance').then((m) => ({ default: m.Finance })));
+const TeacherDashboard = lazyRetry(() => import('./pages/teacher/TeacherDashboard').then((m) => ({ default: m.TeacherDashboard })));
+const StudentDashboard = lazyRetry(() => import('./pages/student/StudentDashboard').then((m) => ({ default: m.StudentDashboard })));
+const StudentFinance = lazyRetry(() => import('./pages/student/StudentFinance').then((m) => ({ default: m.StudentFinance })));
+const StudentGrades = lazyRetry(() => import('./pages/student/StudentGrades').then((m) => ({ default: m.StudentGrades })));
+const Subjects = lazyRetry(() => import('./pages/Subjects').then((m) => ({ default: m.Subjects })));
+const Schedule = lazyRetry(() => import('./pages/Schedule').then((m) => ({ default: m.Schedule })));
+const GradesManagement = lazyRetry(() => import('./pages/GradesManagement').then((m) => ({ default: m.GradesManagement })));
+const Behavior = lazyRetry(() => import('./pages/Behavior').then((m) => ({ default: m.Behavior })));
+const Reports = lazyRetry(() => import('./pages/Reports').then((m) => ({ default: m.Reports })));
+const Settings = lazyRetry(() => import('./pages/Settings').then((m) => ({ default: m.Settings })));
 
 const FullPageSpinner = () => (
   <div className="min-h-screen bg-slate-50 flex items-center justify-center">
