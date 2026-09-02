@@ -46,7 +46,8 @@ export const Schedule: React.FC<ScheduleProps> = ({ user }) => {
                 }
             }).catch(() => setClasses([]));
 
-            api.get<any[]>('/api/admin/teachers').then(data => {
+            api.get<{ data: any[] }>('/api/admin/teachers?limit=100').then(res => {
+                const data = Array.isArray(res) ? res : (res?.data || []);
                 setTeachers(data);
                 if (data.length > 0) {
                     setNewSession(prev => ({ ...prev, teacher: data[0].name }));

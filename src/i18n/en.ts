@@ -623,4 +623,15 @@ export const en: Record<string, string> = {
   "تمت إضافة الدرجة للطالب {name} بنجاح": "Grade added for {name}",
   "تمت الموافقة بنجاح. الرقم التعريفي للطالب: {uid}": "Approved. The student's UID is {uid}",
   "الخطوة {current} من {total}": "Step {current} of {total}",
+
+  /* ----------------------------- error boundary ----------------------------- */
+  "حدث خطأ": "Something went wrong",
+  "حدث خطأ أثناء تحميل الصفحة. تأكد من اتصالك بالإنترنت وأعد المحاولة.": "Failed to load the page. Check your internet connection and try again.",
+  "أعد المحاولة": "Retry",
+
+  /* ------------------------------- pagination ------------------------------- */
+  "تحميل المزيد": "Load more",
+  "تحميل المزيد من الدرجات": "Load more grades",
+  "جاري التحميل...": "Loading...",
+  "لا توجد نتائج أخرى": "No more results",
 };

@@ -74,8 +74,11 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
         const endpoint = isStaff(user.role) ? '/api/classes' : `/api/teacher/classes/${user.id}`;
         api.get<ClassData[]>(endpoint).then(setClasses).catch(() => {});
         if (isStaff(user.role)) {
-            api.get<any[]>('/api/admin/students')
-                .then((list) => setStudents(list.map((s) => ({ id: s.id, name: s.name, uid: s.uid }))))
+            api.get<{ data: any[] }>('/api/admin/students?limit=100')
+                .then((res) => {
+                    const list = Array.isArray(res) ? res : (res?.data || []);
+                    setStudents(list.map((s) => ({ id: s.id, name: s.name, uid: s.uid })));
+                })
                 .catch(() => {});
         }
     }, [user.id, user.role]);

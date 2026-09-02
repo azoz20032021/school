@@ -6,6 +6,7 @@ import {
   getDoc,
   getDocs,
   limit as fsLimit,
+  orderBy,
   query,
   runTransaction,
   serverTimestamp,
@@ -17,6 +18,7 @@ import {
   db,
   enrollmentsRef,
   fetchAll,
+  fetchPage,
   invoicesRef,
   notificationsRef,
   registrationsRef,
@@ -189,17 +191,21 @@ router.get(
  * Staff: review queue
  * ------------------------------------------------------------------ */
 
+const DEFAULT_PAGE_SIZE = 25;
+
 router.get(
   "/admin/registrations",
   requireStaff,
   wrap(async (req, res) => {
+    const pageSize = v.num(req.query.limit, "الحد", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE });
+    const cursor = req.query.after ? String(req.query.after) : null;
     const status = req.query.status ? v.oneOf(req.query.status, "الحالة", STATUSES) : null;
-    const q = status ? query(registrationsRef, where("status", "==", status)) : registrationsRef;
 
-    const rows = await fetchAll<Record<string, any>>(q);
-    rows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    const filters: any[] = status ? [where("status", "==", status)] : [];
+    const q = query(registrationsRef, ...filters, orderBy("createdAt", "desc"));
+    const { data, nextCursor } = await fetchPage<Record<string, any>>(q, pageSize, cursor, registrationsRef);
 
-    res.json(rows.map(({ password, ...safe }) => safe));
+    res.json({ data: data.map(({ password, ...safe }) => safe), nextCursor });
   })
 );
 

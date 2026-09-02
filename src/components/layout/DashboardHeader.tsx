@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Bell, Check, CheckCheck, LogOut, Settings, User } from 'lucide-react';
+import { Bell, Check, CheckCheck, LogOut, Settings, User, X } from 'lucide-react';
 import { UserData } from '../../types';
 import { api, formatDateTime } from '../../lib/api';
 import { LanguageToggle } from '../ui/LanguageToggle';
@@ -126,21 +126,37 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout
                                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                                     animate={{ opacity: 1, y: 0, scale: 1 }}
                                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                                    className="absolute left-0 mt-3 w-80 max-w-[calc(100vw-2rem)] bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden z-[200]"
+                                    className="fixed inset-x-3 top-16 sm:inset-x-auto sm:top-full sm:mt-3 ltr:sm:right-0 rtl:sm:left-0 sm:w-80 max-h-[80vh] sm:max-h-[32rem] bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden z-[200] flex flex-col"
                                 >
-                                    <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
-                                        <h4 className="font-black text-slate-800 text-sm">{t('الإشعارات')}</h4>
-                                        {unreadCount > 0 && (
+                                    <div className="p-4 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center shrink-0">
+                                        <div className="flex items-center gap-2">
+                                            <h4 className="font-black text-slate-800 text-sm">{t('الإشعارات')}</h4>
+                                            {unreadCount > 0 && (
+                                                <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black">
+                                                    {unreadCount}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            {unreadCount > 0 && (
+                                                <button
+                                                    onClick={markAllRead}
+                                                    className="text-[10px] font-black text-indigo-600 flex items-center gap-1 hover:underline"
+                                                >
+                                                    <CheckCheck className="w-3 h-3" />
+                                                    {t('تعليم الكل كمقروء')}
+                                                </button>
+                                            )}
                                             <button
-                                                onClick={markAllRead}
-                                                className="text-[10px] font-black text-indigo-600 flex items-center gap-1 hover:underline"
+                                                onClick={() => setShowNotifs(false)}
+                                                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg sm:hidden transition-colors"
+                                                aria-label={t('إغلاق')}
                                             >
-                                                <CheckCheck className="w-3 h-3" />
-                                                {t('تعليم الكل كمقروء')}
+                                                <X className="w-4 h-4" />
                                             </button>
-                                        )}
+                                        </div>
                                     </div>
-                                    <div className="max-h-96 overflow-y-auto no-scrollbar py-1">
+                                    <div className="overflow-y-auto overscroll-contain py-1 flex-1 max-h-[calc(80vh-70px)] sm:max-h-96">
                                         {notifications.length > 0 ? (
                                             notifications.map((n) => (
                                                 <div

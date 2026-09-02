@@ -5,12 +5,13 @@ import {
   doc,
   getDoc,
   getDocs,
+  orderBy,
   query,
   serverTimestamp,
   updateDoc,
   where,
 } from "firebase/firestore";
-import { db, fetchAll, gradesRef, notificationsRef, usersRef } from "../lib/db.js";
+import { db, fetchAll, fetchPage, gradesRef, notificationsRef, usersRef } from "../lib/db.js";
 import { requireAuth, requireRole, requireSelfOrStaff } from "../lib/auth.js";
 import { audit } from "../lib/audit.js";
 import { forbidden, notFound, wrap } from "../lib/http.js";
@@ -21,6 +22,7 @@ const router = Router();
 
 const CATEGORIES = ["يومي", "شهري", "واجب", "مشاركة", "نصف الفصل", "نهائي", "امتحان"] as const;
 const SEMESTERS = ["الفصل الأول", "الفصل الثاني", "الفصل الثالث"] as const;
+const DEFAULT_PAGE_SIZE = 25;
 
 /**
  * Subject-level authorization.
@@ -49,11 +51,12 @@ router.get(
   "/class/:classId/grades",
   requireAuth,
   wrap(async (req, res) => {
-    const rows = await fetchAll<Record<string, any>>(
-      query(gradesRef, where("class_id", "==", req.params.classId))
-    );
-    rows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-    res.json(rows);
+    const pageSize = v.num(req.query.limit, "الحد", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE });
+    const cursor = req.query.after ? String(req.query.after) : null;
+
+    const q = query(gradesRef, where("class_id", "==", req.params.classId), orderBy("createdAt", "desc"));
+    const { data, nextCursor } = await fetchPage<Record<string, any>>(q, pageSize, cursor, gradesRef);
+    res.json({ data, nextCursor });
   })
 );
 

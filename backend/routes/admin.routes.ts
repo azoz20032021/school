@@ -21,6 +21,7 @@ import {
   enrollmentsRef,
   fetchAll,
   fetchIndexed,
+  fetchPage,
   notificationsRef,
   usersRef,
   validUidsRef,
@@ -34,6 +35,7 @@ import * as v from "../lib/validate.js";
 const router = Router();
 
 const BATCH_LIMIT = 450;
+const DEFAULT_PAGE_SIZE = 25;
 
 /* ------------------------------------------------------------------ *
  * Staff directory
@@ -42,9 +44,17 @@ const BATCH_LIMIT = 450;
 router.get(
   "/admin/students",
   requireStaff,
-  wrap(async (_req, res) => {
-    const students = await fetchAll<Record<string, any>>(query(usersRef, where("role", "==", "student")));
-    res.json(students.map(sanitizeUser).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name), "ar")));
+  wrap(async (req, res) => {
+    const pageSize = v.num(req.query.limit, "الحد", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE });
+    const cursor = req.query.after ? String(req.query.after) : null;
+
+    const { data, nextCursor } = await fetchPage<Record<string, any>>(
+      query(usersRef, where("role", "==", "student"), orderBy("name")),
+      pageSize,
+      cursor,
+      usersRef
+    );
+    res.json({ data: data.map(sanitizeUser), nextCursor });
   })
 );
 
@@ -177,9 +187,17 @@ router.delete(
 router.get(
   "/admin/teachers",
   requireStaff,
-  wrap(async (_req, res) => {
-    const teachers = await fetchAll<Record<string, any>>(query(usersRef, where("role", "==", "teacher")));
-    res.json(teachers.map(sanitizeUser));
+  wrap(async (req, res) => {
+    const pageSize = v.num(req.query.limit, "الحد", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE });
+    const cursor = req.query.after ? String(req.query.after) : null;
+
+    const { data, nextCursor } = await fetchPage<Record<string, any>>(
+      query(usersRef, where("role", "==", "teacher"), orderBy("name")),
+      pageSize,
+      cursor,
+      usersRef
+    );
+    res.json({ data: data.map(sanitizeUser), nextCursor });
   })
 );
 

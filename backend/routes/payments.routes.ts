@@ -4,6 +4,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  orderBy,
   query,
   runTransaction,
   serverTimestamp,
@@ -17,6 +18,7 @@ import {
   db,
   enrollmentsRef,
   fetchAll,
+  fetchPage,
   getDocsByIds,
   invoicesRef,
   notificationsRef,
@@ -36,8 +38,8 @@ const CATEGORIES = ["قسط دراسي", "رسوم تسجيل", "كتب وقرط
 const METHODS = ["نقدي", "تحويل بنكي", "محفظة إلكترونية", "شيك"] as const;
 const INVOICE_STATUSES = ["unpaid", "partial", "paid", "cancelled"] as const;
 
-/** Firestore rejects batches larger than 500 writes. */
 const BATCH_LIMIT = 450;
+const DEFAULT_PAGE_SIZE = 25;
 
 interface InvoiceShape {
   amount?: number;
@@ -73,21 +75,23 @@ router.get(
   "/admin/invoices",
   requireStaff,
   wrap(async (req, res) => {
-    const filters = [];
+    const pageSize = v.num(req.query.limit, "الحد", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE });
+    const cursor = req.query.after ? String(req.query.after) : null;
+
+    const filters: any[] = [];
     if (req.query.student_id) filters.push(where("student_id", "==", String(req.query.student_id)));
     if (req.query.class_id) filters.push(where("class_id", "==", String(req.query.class_id)));
     if (req.query.status) {
       filters.push(where("status", "==", v.oneOf(req.query.status, "الحالة", INVOICE_STATUSES)));
     }
 
-    const rows = await fetchAll<Record<string, any>>(
-      filters.length ? query(invoicesRef, ...filters) : invoicesRef
-    );
-    rows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    const q = query(invoicesRef, ...filters, orderBy("createdAt", "desc"));
+    const { data, nextCursor } = await fetchPage<Record<string, any>>(q, pageSize, cursor, invoicesRef);
 
-    res.json(
-      rows.map((inv) => ({ ...inv, net_amount: netAmount(inv), remaining: remainingAmount(inv) }))
-    );
+    res.json({
+      data: data.map((inv) => ({ ...inv, net_amount: netAmount(inv), remaining: remainingAmount(inv) })),
+      nextCursor,
+    });
   })
 );
 

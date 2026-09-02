@@ -117,6 +117,8 @@ const StaffView: React.FC<{ user: UserData }> = ({ user }) => {
     const [selectedClass, setSelectedClass] = useState('');
     const [roster, setRoster] = useState<{ id: string; name: string; uid: string }[]>([]);
     const [notes, setNotes] = useState<BehaviorNote[]>([]);
+    const [nextCursor, setNextCursor] = useState<string | null>(null);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [showAdd, setShowAdd] = useState(false);
@@ -125,11 +127,11 @@ const StaffView: React.FC<{ user: UserData }> = ({ user }) => {
     const [form, setForm] = useState({
         student_id: '',
         type: 'positive' as 'positive' | 'negative',
-        category: 'تفوق دراسي',
+        category: CATEGORIES.positive[0],
         title: '',
         description: '',
         points: '5',
-        date: '',
+        date: new Date().toISOString().slice(0, 10),
     });
 
     useEffect(() => {
@@ -147,18 +149,34 @@ const StaffView: React.FC<{ user: UserData }> = ({ user }) => {
         setLoading(true);
         setError('');
         try {
-            const [students, classNotes] = await Promise.all([
+            const [students, classNotesRes] = await Promise.all([
                 api.get<{ id: string; name: string; uid: string }[]>(`/api/class/${classId}/students`),
-                api.get<BehaviorNote[]>(`/api/class/${classId}/behavior`),
+                api.get<{ data: BehaviorNote[]; nextCursor: string | null }>(`/api/class/${classId}/behavior`),
             ]);
             setRoster(students);
-            setNotes(classNotes);
+            setNotes(classNotesRes?.data || (Array.isArray(classNotesRes) ? classNotesRes : []));
+            setNextCursor(classNotesRes?.nextCursor || null);
         } catch (err) {
             setError(err instanceof ApiError ? err.message : t('تعذر تحميل بيانات الصف'));
         } finally {
             setLoading(false);
         }
     }, []);
+
+    const loadMore = async () => {
+        if (!selectedClass || !nextCursor || loadingMore) return;
+        setLoadingMore(true);
+        try {
+            const res = await api.get<{ data: BehaviorNote[]; nextCursor: string | null }>(`/api/class/${selectedClass}/behavior?after=${nextCursor}`);
+            const list = res?.data || (Array.isArray(res) ? res : []);
+            setNotes((prev) => [...prev, ...list]);
+            setNextCursor(res?.nextCursor || null);
+        } catch {
+            /* ignore */
+        } finally {
+            setLoadingMore(false);
+        }
+    };
 
     useEffect(() => { loadClass(selectedClass); }, [selectedClass, loadClass]);
 
@@ -243,6 +261,17 @@ const StaffView: React.FC<{ user: UserData }> = ({ user }) => {
                                 onDelete={isAdmin(user.role) ? () => remove(n.id) : undefined}
                             />
                         ))}
+                    </div>
+                )}
+                {!loading && nextCursor && (
+                    <div className="p-4 border-t border-slate-50 text-center">
+                        <button
+                            onClick={loadMore}
+                            disabled={loadingMore}
+                            className="px-5 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-black transition-all disabled:opacity-50"
+                        >
+                            {loadingMore ? t('جاري التحميل...') : t('تحميل المزيد')}
+                        </button>
                     </div>
                 )}
             </Card>

@@ -39,6 +39,8 @@ export const Finance: React.FC = () => {
     const [overview, setOverview] = useState<Overview | null>(null);
     const [students, setStudents] = useState<StudentFinanceRow[]>([]);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
+    const [invoicesNextCursor, setInvoicesNextCursor] = useState<string | null>(null);
+    const [loadingMoreInvoices, setLoadingMoreInvoices] = useState(false);
     const [classes, setClasses] = useState<ClassData[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -69,15 +71,16 @@ export const Finance: React.FC = () => {
         setLoading(true);
         setError('');
         try {
-            const [ov, st, inv, cls] = await Promise.all([
+            const [ov, st, invRes, cls] = await Promise.all([
                 api.get<Overview>('/api/admin/finance/summary'),
                 api.get<{ students: StudentFinanceRow[] }>('/api/admin/finance/students'),
-                api.get<Invoice[]>('/api/admin/invoices'),
+                api.get<{ data: Invoice[]; nextCursor: string | null }>('/api/admin/invoices'),
                 api.get<ClassData[]>('/api/classes'),
             ]);
             setOverview(ov);
             setStudents(st.students);
-            setInvoices(inv);
+            setInvoices(invRes.data || []);
+            setInvoicesNextCursor(invRes.nextCursor || null);
             setClasses(cls);
         } catch (err) {
             setError(err instanceof ApiError ? err.message : t('تعذر تحميل البيانات المالية'));
@@ -85,6 +88,20 @@ export const Finance: React.FC = () => {
             setLoading(false);
         }
     }, []);
+
+    const loadMoreInvoices = async () => {
+        if (!invoicesNextCursor || loadingMoreInvoices) return;
+        setLoadingMoreInvoices(true);
+        try {
+            const res = await api.get<{ data: Invoice[]; nextCursor: string | null }>(`/api/admin/invoices?after=${invoicesNextCursor}`);
+            setInvoices((prev) => [...prev, ...(res.data || [])]);
+            setInvoicesNextCursor(res.nextCursor || null);
+        } catch {
+            /* ignore */
+        } finally {
+            setLoadingMoreInvoices(false);
+        }
+    };
 
     useEffect(() => { load(); }, [load]);
 
@@ -358,6 +375,17 @@ export const Finance: React.FC = () => {
                                     </div>
                                 );
                             })}
+                        </div>
+                    )}
+                    {tab === 'invoices' && invoicesNextCursor && (
+                        <div className="p-4 border-t border-slate-50 text-center">
+                            <button
+                                onClick={loadMoreInvoices}
+                                disabled={loadingMoreInvoices}
+                                className="px-5 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-black transition-all disabled:opacity-50"
+                            >
+                                {loadingMoreInvoices ? t('جاري التحميل...') : t('تحميل المزيد')}
+                            </button>
                         </div>
                     )}
                 </Card>

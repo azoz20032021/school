@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider, useAuth, isStaff } from './context/AuthContext';
 import { Login } from './pages/Login';
 import { Layout } from './components/layout/Layout';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { UserData } from './types';
 import { I18nProvider, useI18n } from './i18n';
 
@@ -87,6 +88,7 @@ function AppRoutes() {
   if (loading) return <FullPageSpinner />;
 
   return (
+    <ErrorBoundary>
     <Suspense fallback={<FullPageSpinner />}>
     <Routes>
       <Route path="/login" element={!user ? <Login /> : <Navigate to="/" replace />} />
@@ -115,6 +117,7 @@ function AppRoutes() {
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
     </Suspense>
+    </ErrorBoundary>
   );
 }
 

@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { addDoc, deleteDoc, doc, getDoc, query, serverTimestamp, where } from "firebase/firestore";
-import { behaviorRef, db, fetchAll, notificationsRef } from "../lib/db.js";
+import { addDoc, deleteDoc, doc, getDoc, orderBy, query, serverTimestamp, where } from "firebase/firestore";
+import { behaviorRef, db, fetchAll, fetchPage, notificationsRef } from "../lib/db.js";
 import { requireAdmin, requireAuth, requireRole, requireSelfOrStaff } from "../lib/auth.js";
 import { audit } from "../lib/audit.js";
 import { notFound, wrap } from "../lib/http.js";
@@ -102,16 +102,19 @@ router.get(
   })
 );
 
+const DEFAULT_PAGE_SIZE = 25;
+
 router.get(
   "/class/:classId/behavior",
   requireAuth,
   requireRole("teacher", "admin", "assistant_admin"),
   wrap(async (req, res) => {
-    const rows = await fetchAll<Record<string, any>>(
-      query(behaviorRef, where("class_id", "==", req.params.classId))
-    );
-    rows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
-    res.json(rows);
+    const pageSize = v.num(req.query.limit, "الحد", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE });
+    const cursor = req.query.after ? String(req.query.after) : null;
+
+    const q = query(behaviorRef, where("class_id", "==", req.params.classId), orderBy("date", "desc"));
+    const { data, nextCursor } = await fetchPage<Record<string, any>>(q, pageSize, cursor, behaviorRef);
+    res.json({ data, nextCursor });
   })
 );
 

@@ -2,9 +2,14 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import {
   getFirestore,
   collection,
+  doc as fsDoc,
   documentId,
+  getDoc,
   getDocs,
+  limit as fsLimit,
+  orderBy,
   query,
+  startAfter,
   where,
   type CollectionReference,
   type DocumentData,
@@ -196,4 +201,41 @@ export async function fetchIndexed<T = DocumentData>(
     );
     return fallback();
   }
+}
+
+/**
+ * Cursor-based pagination.
+ *
+ * Returns up to `pageSize` documents from `q`. When the caller passes
+ * `cursorId` (the `id` of the last document from the previous page), results
+ * start *after* that document.
+ *
+ * The returned `nextCursor` is `null` when there are no more pages.
+ */
+export async function fetchPage<T = DocumentData>(
+  q: Query | CollectionReference,
+  pageSize: number,
+  cursorId?: string | null,
+  /** The collection ref is needed to look up the cursor document by id. */
+  collectionRef?: CollectionReference
+): Promise<{ data: WithId<T>[]; nextCursor: string | null }> {
+  let paged = query(q as Query, fsLimit(pageSize + 1));
+
+  if (cursorId && collectionRef) {
+    const cursorSnap = await getDoc(fsDoc(collectionRef, cursorId));
+    if (cursorSnap.exists()) {
+      paged = query(q as Query, startAfter(cursorSnap), fsLimit(pageSize + 1));
+    }
+  }
+
+  const snap = await getDocs(paged);
+  const docs = mapSnapshot<T>(snap);
+
+  const hasMore = docs.length > pageSize;
+  if (hasMore) docs.pop();
+
+  return {
+    data: docs,
+    nextCursor: hasMore ? docs[docs.length - 1]?.id ?? null : null,
+  };
 }

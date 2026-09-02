@@ -30,6 +30,8 @@ const DetailRow: React.FC<{ label: string; value?: string | null }> = ({ label, 
 export const Registrations: React.FC = () => {
     const [tab, setTab] = useState<RegistrationStatus>('pending');
     const [rows, setRows] = useState<Registration[]>([]);
+    const [nextCursor, setNextCursor] = useState<string | null>(null);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [classes, setClasses] = useState<ClassData[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -45,14 +47,31 @@ export const Registrations: React.FC = () => {
         setLoading(true);
         setError('');
         try {
-            const data = await api.get<Registration[]>(`/api/admin/registrations?status=${status}`);
-            setRows(data.filter((r) => !(r as any).archived));
+            const res = await api.get<{ data: Registration[]; nextCursor: string | null }>(`/api/admin/registrations?status=${status}`);
+            const list = res?.data || (Array.isArray(res) ? res : []);
+            setRows(list.filter((r) => !(r as any).archived));
+            setNextCursor(res?.nextCursor || null);
         } catch (err) {
             setError(err instanceof ApiError ? err.message : t('تعذر تحميل طلبات التسجيل'));
         } finally {
             setLoading(false);
         }
     }, []);
+
+    const loadMore = async () => {
+        if (!nextCursor || loadingMore) return;
+        setLoadingMore(true);
+        try {
+            const res = await api.get<{ data: Registration[]; nextCursor: string | null }>(`/api/admin/registrations?status=${tab}&after=${nextCursor}`);
+            const list = res?.data || (Array.isArray(res) ? res : []);
+            setRows((prev) => [...prev, ...list.filter((r) => !(r as any).archived)]);
+            setNextCursor(res?.nextCursor || null);
+        } catch {
+            /* ignore */
+        } finally {
+            setLoadingMore(false);
+        }
+    };
 
     useEffect(() => { load(tab); }, [tab, load]);
     useEffect(() => { api.get<ClassData[]>('/api/classes').then(setClasses).catch(() => {}); }, []);
@@ -161,6 +180,17 @@ export const Registrations: React.FC = () => {
                                 <Eye className="w-4 h-4 text-slate-300 shrink-0" />
                             </button>
                         ))}
+                    </div>
+                )}
+                {!loading && nextCursor && (
+                    <div className="p-4 border-t border-slate-50 text-center">
+                        <button
+                            onClick={loadMore}
+                            disabled={loadingMore}
+                            className="px-5 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-black transition-all disabled:opacity-50"
+                        >
+                            {loadingMore ? t('جاري التحميل...') : t('تحميل المزيد')}
+                        </button>
                     </div>
                 )}
             </Card>

@@ -14,6 +14,8 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
     const [selectedClass, setSelectedClass] = useState<ClassData | null>(null);
     const [classStudents, setClassStudents] = useState<any[]>([]);
     const [allGrades, setAllGrades] = useState<any[]>([]);
+    const [gradesNextCursor, setGradesNextCursor] = useState<string | null>(null);
+    const [loadingMoreGrades, setLoadingMoreGrades] = useState(false);
     const [showAddGrade, setShowAddGrade] = useState<{ studentId: string, name: string } | null>(null);
     const [editingGradeId, setEditingGradeId] = useState<string | null>(null);
     const [newGrade, setNewGrade] = useState({ subject: '', score: '', total: '100', category: 'يومي', semester: 'الفصل الأول' });
@@ -53,15 +55,31 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
     const handleSelectClass = async (c: ClassData) => {
         setSelectedClass(c);
         try {
-            const [studentsData, gradesData] = await Promise.all([
+            const [studentsData, gradesRes] = await Promise.all([
                 api.get<any[]>(`/api/class/${c.id}/students`),
-                api.get<any[]>(`/api/class/${c.id}/grades`)
+                api.get<{ data: any[]; nextCursor: string | null }>(`/api/class/${c.id}/grades`)
             ]);
             setClassStudents(studentsData);
-            setAllGrades(gradesData);
+            setAllGrades(gradesRes?.data || (Array.isArray(gradesRes) ? gradesRes : []));
+            setGradesNextCursor(gradesRes?.nextCursor || null);
         } catch (err) {
             alert(err instanceof ApiError ? err.message : t('تعذر تحميل بيانات الصف'));
             setSelectedClass(null);
+        }
+    };
+
+    const handleLoadMoreGrades = async () => {
+        if (!selectedClass || !gradesNextCursor || loadingMoreGrades) return;
+        setLoadingMoreGrades(true);
+        try {
+            const res = await api.get<{ data: any[]; nextCursor: string | null }>(`/api/class/${selectedClass.id}/grades?after=${gradesNextCursor}`);
+            const list = res?.data || (Array.isArray(res) ? res : []);
+            setAllGrades((prev) => [...prev, ...list]);
+            setGradesNextCursor(res?.nextCursor || null);
+        } catch {
+            /* ignore */
+        } finally {
+            setLoadingMoreGrades(false);
         }
     };
 
@@ -338,6 +356,17 @@ export const GradesManagement: React.FC<GradesManagementProps> = ({ user }) => {
                             </div>
                         )}
                     </div>
+                    {gradesNextCursor && (
+                        <div className="text-center pt-2">
+                            <button
+                                onClick={handleLoadMoreGrades}
+                                disabled={loadingMoreGrades}
+                                className="px-5 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-black transition-all disabled:opacity-50"
+                            >
+                                {loadingMoreGrades ? t('جاري التحميل...') : t('تحميل المزيد من الدرجات')}
+                            </button>
+                        </div>
+                    )}
 
                     {showAddGrade && (
                         <AnimatePresence>

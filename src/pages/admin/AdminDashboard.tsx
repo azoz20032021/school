@@ -41,6 +41,8 @@ export const AdminDashboard: React.FC = () => {
     const [validUids, setValidUids] = useState<any[]>([]);
     const [showUidManager, setShowUidManager] = useState(false);
     const [newCustomUid, setNewCustomUid] = useState('');
+    const [teachersNextCursor, setTeachersNextCursor] = useState<string | null>(null);
+    const [loadingMoreTeachers, setLoadingMoreTeachers] = useState(false);
 
     /**
      * One pass over every list the dashboard shows. Each request is independent,
@@ -51,12 +53,12 @@ export const AdminDashboard: React.FC = () => {
         const settle = <T,>(p: Promise<T>, fallback: T) => p.catch(() => fallback);
 
         const [
-            classesData, studentsData, teachersData,
+            classesData, studentsRes, teachersRes,
             assistantsData, subjectsData, absencesData, uidsData,
         ] = await Promise.all([
             settle(api.get<ClassData[]>('/api/classes'), []),
-            settle(api.get<any[]>('/api/admin/students'), []),
-            settle(api.get<UserData[]>('/api/admin/teachers'), []),
+            settle(api.get<{ data: any[]; nextCursor: string | null }>('/api/admin/students'), { data: [], nextCursor: null }),
+            settle(api.get<{ data: UserData[]; nextCursor: string | null }>('/api/admin/teachers'), { data: [], nextCursor: null }),
             canManageTeachers ? settle(api.get<any[]>('/api/admin/assistants'), []) : Promise.resolve([]),
             settle(api.get<any[]>('/api/subjects'), []),
             settle(api.get<any[]>('/api/admin/absences/daily'), []),
@@ -64,12 +66,27 @@ export const AdminDashboard: React.FC = () => {
         ]);
 
         setClasses(classesData);
-        setStudents(studentsData);
-        setTeachers(teachersData);
+        setStudents(studentsRes.data || []);
+        setTeachers(teachersRes.data || []);
+        setTeachersNextCursor(teachersRes.nextCursor || null);
         if (canManageTeachers) setAssistants(assistantsData);
         setAllSubjects(subjectsData);
         setDailyAbsences(absencesData);
         setValidUids(uidsData);
+    };
+
+    const handleLoadMoreTeachers = async () => {
+        if (!teachersNextCursor || loadingMoreTeachers) return;
+        setLoadingMoreTeachers(true);
+        try {
+            const res = await api.get<{ data: UserData[]; nextCursor: string | null }>(`/api/admin/teachers?after=${teachersNextCursor}`);
+            setTeachers(prev => [...prev, ...(res.data || [])]);
+            setTeachersNextCursor(res.nextCursor || null);
+        } catch {
+            /* ignore */
+        } finally {
+            setLoadingMoreTeachers(false);
+        }
     };
 
     useEffect(() => {
@@ -597,7 +614,7 @@ export const AdminDashboard: React.FC = () => {
                             </form>
                         )}
 
-                        <div className="grid grid-cols-2 gap-3 pb-4">
+                        <div className="grid grid-cols-2 gap-3 pb-2">
                             {teachers.map(teacher => (
                                 <div key={teacher.id}
                                     onClick={() => setViewingTeacher(teacher)}
@@ -611,6 +628,17 @@ export const AdminDashboard: React.FC = () => {
                                 </div>
                             ))}
                         </div>
+                        {teachersNextCursor && (
+                            <div className="text-center pb-4">
+                                <button
+                                    onClick={handleLoadMoreTeachers}
+                                    disabled={loadingMoreTeachers}
+                                    className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+                                >
+                                    {loadingMoreTeachers ? t('جاري التحميل...') : t('تحميل المزيد')}
+                                </button>
+                            </div>
+                        )}
                     </div>
 
                     {currentUser?.role === 'admin' && (
