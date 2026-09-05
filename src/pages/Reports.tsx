@@ -48,9 +48,19 @@ const monthAgo = () => {
 
 const SCHOOL_NAME = 'ثانوية المعالي الأهلية';
 
-/** One sheet of A4: bordered on screen, edge-to-edge on paper. */
-const Sheet: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-8 max-w-[860px] mx-auto print:max-w-none print:border-0 print:rounded-none print:shadow-none print:p-0">
+/**
+ * One sheet of A4: bordered on screen, edge-to-edge on paper.
+ *
+ * A report listing a whole class or the school's debtors has far more columns
+ * than one about a single student, so those ask for a landscape sheet — the
+ * portrait one cut the last columns off the right edge.
+ */
+const Sheet: React.FC<{ children: React.ReactNode; wide?: boolean }> = ({ children, wide }) => (
+    <div
+        className={`bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-8 mx-auto print:border-0 print:rounded-none print:shadow-none print:p-0 ${
+            wide ? 'max-w-[1100px] print:max-w-none print-landscape' : 'max-w-[860px] print:max-w-none'
+        }`}
+    >
         {children}
     </div>
 );
@@ -93,18 +103,25 @@ const IdentityTable: React.FC<{ rows: [string, string][] }> = ({ rows }) => (
     </table>
 );
 
-const SignatureBlock: React.FC<{ left?: string }> = ({ left = 'توقيع المسؤول' }) => (
-    <div className="grid grid-cols-3 gap-4 mt-6 pt-4 border-t border-slate-200 text-center print-block">
-        <div>
-            <p className="text-[11px] font-black text-slate-700">{t(left)}</p>
-            <div className="h-14 border-b border-slate-400 mt-1" />
-        </div>
+/**
+ * Only two people ever sign one of these: the accountant, on anything about
+ * money, and the administration, on everything. The stamp box sits between
+ * them.
+ */
+const SignatureBlock: React.FC<{ finance?: boolean }> = ({ finance }) => (
+    <div className={`grid ${finance ? 'grid-cols-3' : 'grid-cols-2'} gap-4 mt-6 pt-4 border-t border-slate-200 text-center print-block`}>
+        {finance && (
+            <div>
+                <p className="text-[11px] font-black text-slate-700">{t('توقيع المحاسب')}</p>
+                <div className="h-14 border-b border-slate-400 mt-1" />
+            </div>
+        )}
         <div>
             <p className="text-[11px] font-black text-slate-700">{t('ختم المدرسة')}</p>
             <div className="h-14 mt-1 border border-dashed border-slate-300 rounded-lg" />
         </div>
         <div>
-            <p className="text-[11px] font-black text-slate-700">{t('مدير المدرسة')}</p>
+            <p className="text-[11px] font-black text-slate-700">{t('توقيع الإدارة')}</p>
             <div className="h-14 border-b border-slate-400 mt-1" />
         </div>
     </div>
@@ -121,15 +138,20 @@ const Block: React.FC<{ title: string; note?: string; children: React.ReactNode 
     </section>
 );
 
+/**
+ * On screen a wide table scrolls sideways; on paper it cannot, so the print
+ * rules let cells wrap and shrink instead. A list of two hundred students was
+ * running off the right edge of the sheet with half the columns lost.
+ */
 const Table: React.FC<{ headers: string[]; rows: (string | number | React.ReactNode)[][] }> = ({ headers, rows }) => (
     <div className="overflow-x-auto print:overflow-visible">
-        <table className="w-full text-[11px] border-collapse">
+        <table className="w-full text-[11px] border-collapse print:text-[9px] print:table-fixed">
             <thead>
                 <tr className="bg-slate-100">
                     {headers.map((h) => (
                         <th
                             key={h}
-                            className="text-right font-black text-slate-700 border border-slate-300 px-2.5 py-1.5 whitespace-nowrap"
+                            className="text-right font-black text-slate-700 border border-slate-300 px-2.5 py-1.5 whitespace-nowrap print:whitespace-normal print:px-1 print:py-1"
                         >
                             {t(h)}
                         </th>
@@ -140,7 +162,10 @@ const Table: React.FC<{ headers: string[]; rows: (string | number | React.ReactN
                 {rows.map((row, i) => (
                     <tr key={i}>
                         {row.map((cell, j) => (
-                            <td key={j} className="border border-slate-200 px-2.5 py-1.5 text-slate-700 font-bold whitespace-nowrap">
+                            <td
+                                key={j}
+                                className="border border-slate-200 px-2.5 py-1.5 text-slate-700 font-bold whitespace-nowrap print:whitespace-normal print:break-words print:px-1 print:py-1"
+                            >
                                 {cell}
                             </td>
                         ))}
@@ -321,14 +346,13 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
 
             {data && tab === 'student' && (
                 <Sheet>
-                    <SheetHeader title={t('كشف حال الطالب')} meta={`${t('الرقم التعريفي')}: ${data.student.uid}`} />
+                    <SheetHeader title={t('كشف حال الطالب')} meta={data.student.class_name || undefined} />
 
                     <IdentityTable
                         rows={[
                             ['الاسم', data.student.name],
                             ['الصف', data.student.class_name || '—'],
                             ['الرقم الوطني', data.student.national_id || '—'],
-                            ['الرقم التعريفي', data.student.uid],
                             ['اسم الأم', data.student.mother_name || '—'],
                             ['ولي الأمر', [data.student.guardian_name, data.student.guardian_phone].filter(Boolean).join(' — ') || '—'],
                         ]}
@@ -408,12 +432,12 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                         )}
                     </Block>
 
-                    <SignatureBlock left={t('توقيع المرشد التربوي')} />
+                    <SignatureBlock />
                 </Sheet>
             )}
 
             {data && tab === 'class' && (
-                <Sheet>
+                <Sheet wide>
                     <SheetHeader title={t('كشف درجات صف')} meta={data.class.name} />
                     <Block
                         title={data.class.name}
@@ -423,10 +447,9 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                             <p className="text-[11px] font-bold text-slate-400 py-3">{t('لا يوجد طلاب في هذا الصف')}</p>
                         ) : (
                             <Table
-                                headers={['الطالب', 'الرقم', ...data.subjects, 'المعدل', 'الحضور', 'المتبقي']}
+                                headers={['الطالب', ...data.subjects, 'المعدل', 'الحضور', 'المتبقي']}
                                 rows={data.students.map((s: any) => [
                                     s.name,
-                                    s.uid,
                                     ...data.subjects.map((sub: string) =>
                                         s.subjects[sub] === null || s.subjects[sub] === undefined ? '—' : `${s.subjects[sub]}%`
                                     ),
@@ -437,40 +460,38 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                             />
                         )}
                     </Block>
-                    <SignatureBlock left={t('توقيع معاون المدير')} />
+                    <SignatureBlock />
                 </Sheet>
             )}
 
             {data && tab === 'attendance' && (
-                <Sheet>
+                <Sheet wide>
                     <SheetHeader title={t('كشف الغياب')} meta={`${data.from} — ${data.to}`} />
                     <Block title={t('ملخص الحضور')} note={`${t('من')} ${data.from} ${t('إلى')} ${data.to}`}>
                         {data.students.length === 0 ? (
                             <p className="text-[11px] font-bold text-slate-400 py-3">{t('لا توجد سجلات حضور في هذه الفترة')}</p>
                         ) : (
                             <Table
-                                headers={['الطالب', 'الرقم', 'حاضر', 'غائب', 'متأخر', 'بعذر', 'النسبة', 'هاتف ولي الأمر']}
+                                headers={['الطالب', 'حاضر', 'غائب', 'متأخر', 'بعذر', 'النسبة', 'هاتف ولي الأمر']}
                                 rows={data.students.map((s: any) => [
-                                    s.name, s.uid, s.present, s.absent, s.late, s.excused, `${s.rate}%`, s.guardian_phone || '—',
+                                    s.name, s.present, s.absent, s.late, s.excused, `${s.rate}%`, s.guardian_phone || '—',
                                 ])}
                             />
                         )}
                     </Block>
-                    <SignatureBlock left={t('توقيع مسؤول الانضباط')} />
+                    <SignatureBlock />
                 </Sheet>
             )}
 
             {data && tab === 'finance' && data.single && (
                 <Sheet>
-                    <SheetHeader title={t('كشف ديون طالب')} meta={`${t('الرقم التعريفي')}: ${data.student?.uid || '—'}`} />
+                    <SheetHeader title={t('كشف ديون طالب')} meta={data.student?.class_name || undefined} />
 
                     <IdentityTable
                         rows={[
                             ['الاسم', data.student?.name || '—'],
                             ['الصف', data.student?.class_name || '—'],
                             ['الرقم الوطني', data.student?.national_id || '—'],
-                            ['الرقم التعريفي', data.student?.uid || '—'],
-                            ['هاتف ولي الأمر', data.student?.guardian_phone || '—'],
                         ]}
                     />
 
@@ -529,12 +550,12 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                         {t('هذا الكشف صادر عن إدارة المدرسة ولا يُعتد به إلا مختوماً وموقّعاً.')}
                     </p>
 
-                    <SignatureBlock left={t('توقيع المحاسب')} />
+                    <SignatureBlock finance />
                 </Sheet>
             )}
 
             {data && tab === 'finance' && !data.single && (
-                <Sheet>
+                <Sheet wide>
                     <SheetHeader
                         title={t('كشف الديون')}
                         meta={selectedClass ? classes.find((c) => c.id === selectedClass)?.name : t('كل الصفوف')}
@@ -547,16 +568,16 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                             <p className="text-[11px] font-bold text-slate-400 py-3">{t('لا يوجد طلاب مطابقون')}</p>
                         ) : (
                             <Table
-                                headers={['الطالب', 'الصف', 'الرقم الوطني', 'الرقم التعريفي', 'الإجمالي', 'المسدد', 'المتبقي', 'الحالة', 'هاتف ولي الأمر']}
+                                headers={['الطالب', 'الصف', 'الرقم الوطني', 'الإجمالي', 'المسدد', 'المتبقي', 'الحالة']}
                                 rows={data.students.map((s: any) => [
-                                    s.name, s.class_name, s.national_id || '—', s.uid,
+                                    s.name, s.class_name, s.national_id || '—',
                                     formatMoney(s.total_billed), formatMoney(s.total_paid), formatMoney(s.outstanding),
-                                    t(s.payment_status), s.guardian_phone || '—',
+                                    t(s.payment_status),
                                 ])}
                             />
                         )}
                     </Block>
-                    <SignatureBlock left={t('توقيع المحاسب')} />
+                    <SignatureBlock finance />
                 </Sheet>
             )}
         </div>

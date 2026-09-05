@@ -3,6 +3,7 @@ import { Outlet, Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { DashboardHeader } from './DashboardHeader';
 import { Navbar } from './Navbar';
+import { PaymentLock } from './PaymentLock';
 
 export const Layout: React.FC = () => {
     const { user, logout, loading } = useAuth();
@@ -17,6 +18,15 @@ export const Layout: React.FC = () => {
 
     if (!user) {
         return <Navigate to="/login" replace />;
+    }
+
+    /**
+     * A student whose fees have lapsed sees one screen and nothing else. The
+     * flag is computed by the server and arrives with the account, so it cannot
+     * be cleared by editing anything in the browser.
+     */
+    if (user.role === 'student' && user.dues?.blocked) {
+        return <PaymentLock dues={user.dues} name={user.name} onLogout={logout} />;
     }
 
     return (

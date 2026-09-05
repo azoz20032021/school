@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-    BookOpen, Calendar, CheckCircle, FileBarChart, Home, MoreHorizontal, Settings as SettingsIcon,
-    Smile, UserCheck, Wallet, X,
+    BookMarked, BookOpen, Calendar, CheckCircle, FileBarChart, Home, MoreHorizontal,
+    Settings as SettingsIcon, Smile, UserCheck, Wallet, X,
 } from 'lucide-react';
 import { Role } from '../../types';
 import { t } from '../../i18n';
@@ -23,14 +23,14 @@ const PRIMARY: Record<Role, NavItem[]> = {
     student: [
         { to: '/', label: 'الرئيسية', icon: Home },
         { to: '/grades', label: 'الدرجات', icon: CheckCircle },
-        { to: '/finance', label: 'المالية', icon: Wallet },
+        { to: '/homework', label: 'الواجبات', icon: BookMarked },
         { to: '/schedule', label: 'الجدول', icon: Calendar },
     ],
     teacher: [
         { to: '/', label: 'الرئيسية', icon: Home },
         { to: '/grades', label: 'رصد الدرجات', icon: CheckCircle },
-        { to: '/behavior', label: 'السلوك', icon: Smile },
-        { to: '/reports', label: 'التقارير', icon: FileBarChart },
+        { to: '/homework', label: 'الواجبات', icon: BookMarked },
+        { to: '/schedule', label: 'الجدول', icon: Calendar },
     ],
     admin: [
         { to: '/', label: 'الرئيسية', icon: Home },
@@ -48,16 +48,20 @@ const PRIMARY: Record<Role, NavItem[]> = {
 
 const SECONDARY: Record<Role, NavItem[]> = {
     student: [
+        { to: '/finance', label: 'المالية', icon: Wallet },
         { to: '/behavior', label: 'السلوك والملاحظات', icon: Smile },
         { to: '/subjects', label: 'المواد الدراسية', icon: BookOpen },
         { to: '/reports', label: 'كشف درجاتي', icon: FileBarChart },
         { to: '/settings', label: 'الإعدادات', icon: SettingsIcon },
     ],
     teacher: [
+        { to: '/behavior', label: 'السلوك والملاحظات', icon: Smile },
+        { to: '/reports', label: 'التقارير', icon: FileBarChart },
         { to: '/settings', label: 'الإعدادات', icon: SettingsIcon },
     ],
     admin: [
         { to: '/grades', label: 'رصد الدرجات', icon: CheckCircle },
+        { to: '/homework', label: 'الواجبات', icon: BookMarked },
         { to: '/behavior', label: 'السلوك والملاحظات', icon: Smile },
         { to: '/subjects', label: 'المواد الدراسية', icon: BookOpen },
         { to: '/schedule', label: 'الجدول الأسبوعي', icon: Calendar },
@@ -65,6 +69,7 @@ const SECONDARY: Record<Role, NavItem[]> = {
     ],
     assistant_admin: [
         // No /grades entry: recording grades is admin-only.
+        { to: '/homework', label: 'الواجبات', icon: BookMarked },
         { to: '/behavior', label: 'السلوك والملاحظات', icon: Smile },
         { to: '/subjects', label: 'المواد الدراسية', icon: BookOpen },
         { to: '/schedule', label: 'الجدول الأسبوعي', icon: Calendar },

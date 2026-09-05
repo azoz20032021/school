@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Banknote, CircleDollarSign, FileText, Phone, Plus, Receipt, Search, TrendingUp, Wallet,
+    Banknote, BellRing, CircleDollarSign, FileText, Phone, Plus, Receipt, Search, TrendingUp, Wallet,
 } from 'lucide-react';
 import { ClassData, Invoice, Payment, StudentFinanceRow } from '../../types';
 import { api, ApiError, formatMoney } from '../../lib/api';
@@ -20,6 +20,9 @@ const STUDENT_PAGE_SIZE = 20;
 
 const CATEGORIES = ['قسط دراسي', 'رسوم تسجيل', 'كتب وقرطاسية', 'نقل مدرسي', 'زي مدرسي', 'نشاطات', 'أخرى'];
 const METHODS = ['نقدي', 'تحويل بنكي', 'محفظة إلكترونية', 'شيك'];
+
+/** How the school splits the year when it bills. Free text before this. */
+const TERMS = ['القسط الأول', 'القسط الثاني', 'الفصل الأول', 'الفصل الثاني'];
 
 const STATUS_VIEW: Record<string, { tone: 'emerald' | 'amber' | 'rose' | 'slate'; label: string }> = {
     paid: { tone: 'emerald', label: 'مسدد بالكامل' },
@@ -269,6 +272,23 @@ export const Finance: React.FC = () => {
         }
     };
 
+    /**
+     * The reminders also go out on their own roughly hourly; this is for the
+     * accountant who wants them sent now. Sending twice changes nothing.
+     */
+    const sendReminders = async () => {
+        setBusy(true);
+        setError('');
+        try {
+            const res = await api.post<{ sent: number }>('/api/admin/finance/reminders');
+            alert(t('تم إرسال {count} تذكير', { count: res.sent }));
+        } catch (err) {
+            setError(err instanceof ApiError ? err.message : t('تعذر إرسال التذكيرات'));
+        } finally {
+            setBusy(false);
+        }
+    };
+
     const reversePayment = async (paymentId: string) => {
         if (!confirm(t('هل أنت متأكد من إرجاع هذه الدفعة؟ سيتم تعديل رصيد السند.'))) return;
         try {
@@ -289,13 +309,24 @@ export const Finance: React.FC = () => {
                     <h2 className="text-lg font-black text-slate-800">{t('الإدارة المالية')}</h2>
                     <p className="text-xs text-slate-400 font-medium mt-0.5">{t('الأقساط والرسوم وحالة السداد لكل طالب')}</p>
                 </div>
-                <button
-                    onClick={() => setShowIssue(true)}
-                    className="bg-indigo-600 text-white px-4 py-2.5 rounded-xl text-xs font-black shadow-lg shadow-indigo-100 flex items-center gap-1.5 shrink-0"
-                >
-                    <Plus className="w-4 h-4" />
-                    {t('إصدار رسوم')}
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                    <button
+                        onClick={sendReminders}
+                        disabled={busy}
+                        className="bg-white border border-slate-200 text-slate-600 px-3 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5 hover:bg-slate-50 disabled:opacity-60"
+                        title={t('يرسل تذكيراً لكل طالب اقترب موعد قسطه أو تأخر عنه')}
+                    >
+                        <BellRing className="w-4 h-4" />
+                        {t('تذكير بالأقساط')}
+                    </button>
+                    <button
+                        onClick={() => setShowIssue(true)}
+                        className="bg-indigo-600 text-white px-4 py-2.5 rounded-xl text-xs font-black shadow-lg shadow-indigo-100 flex items-center gap-1.5"
+                    >
+                        <Plus className="w-4 h-4" />
+                        {t('إصدار رسوم')}
+                    </button>
+                </div>
             </div>
 
             {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
@@ -602,12 +633,14 @@ export const Finance: React.FC = () => {
                             />
                         </div>
                         <div>
-                            <label className={labelClass}>{t('الفصل الدراسي')}</label>
-                            <input
+                            <label className={labelClass}>{t('القسط / الفصل')}</label>
+                            <select
                                 className={inputClass} value={issueForm.term}
                                 onChange={(e) => setIssueForm((f) => ({ ...f, term: e.target.value }))}
-                                placeholder={t('الفصل الأول')}
-                            />
+                            >
+                                <option value="">{t('غير محدد')}</option>
+                                {TERMS.map((term) => <option key={term} value={term}>{t(term)}</option>)}
+                            </select>
                         </div>
                     </div>
 

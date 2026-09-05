@@ -19,6 +19,7 @@ import notificationsRoutes from "./routes/notifications.routes.js";
 import catalogRoutes from "./routes/catalog.routes.js";
 import paymentsRoutes from "./routes/payments.routes.js";
 import behaviorRoutes from "./routes/behavior.routes.js";
+import homeworkRoutes from "./routes/homework.routes.js";
 import reportsRoutes from "./routes/reports.routes.js";
 
 const app = express();
@@ -160,6 +161,7 @@ app.use("/api", notificationsRoutes);
 app.use("/api", catalogRoutes);
 app.use("/api", paymentsRoutes);
 app.use("/api", behaviorRoutes);
+app.use("/api", homeworkRoutes);
 app.use("/api", reportsRoutes);
 
 app.use("/api", (req, res) => {

@@ -28,6 +28,18 @@ export interface UserData {
     previous_school?: string;
     health_notes?: string;
     class_name?: string;
+
+    /** Fees owed, attached by the server for students. */
+    dues?: StudentDues;
+}
+
+export interface StudentDues {
+    outstanding: number;
+    overdue_amount: number;
+    overdue_count: number;
+    next_due_date: string | null;
+    /** A due date has passed with money still owed: the account is locked. */
+    blocked: boolean;
 }
 
 export interface ClassData {

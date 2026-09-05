@@ -8,7 +8,7 @@ config();
 
 // backend/app.ts
 import express from "express";
-import { addDoc as addDoc9, getDocs as getDocs10, limit as fsLimit5, query as query14, serverTimestamp as serverTimestamp11, where as where14 } from "firebase/firestore";
+import { addDoc as addDoc10, getDocs as getDocs11, limit as fsLimit5, query as query16, serverTimestamp as serverTimestamp13, where as where16 } from "firebase/firestore";
 
 // backend/lib/db.ts
 import { initializeApp, getApps, getApp } from "firebase/app";
@@ -83,6 +83,7 @@ var registrationsRef = collection(db, "registrations");
 var invoicesRef = collection(db, "invoices");
 var paymentsRef = collection(db, "payments");
 var behaviorRef = collection(db, "behavior_notes");
+var homeworkRef = collection(db, "homework");
 var auditRef = collection(db, "audit_logs");
 var IN_QUERY_LIMIT = 30;
 function chunk(items, size = IN_QUERY_LIMIT) {
@@ -694,7 +695,7 @@ function stringArray(value, field, opts = {}) {
 
 // backend/routes/auth.routes.ts
 import { Router } from "express";
-import { doc, getDocs as getDocs2, query as query2, serverTimestamp as serverTimestamp2, updateDoc, where as where2 } from "firebase/firestore";
+import { doc as doc2, getDocs as getDocs3, query as query3, serverTimestamp as serverTimestamp3, updateDoc, where as where3 } from "firebase/firestore";
 
 // backend/lib/audit.ts
 import { addDoc, serverTimestamp } from "firebase/firestore";
@@ -717,6 +718,127 @@ function audit(req, input) {
   }).catch((err) => console.error("[audit] failed to write entry:", err?.message || err));
 }
 
+// backend/lib/dues.ts
+import { doc, getDocs as getDocs2, query as query2, serverTimestamp as serverTimestamp2, where as where2, writeBatch } from "firebase/firestore";
+
+// backend/lib/money.ts
+var CURRENCY = "IQD";
+function netAmount(inv) {
+  return Math.max(0, Number(inv.amount || 0) - Number(inv.discount || 0));
+}
+function remainingAmount(inv) {
+  if (inv.status === "cancelled") return 0;
+  return Math.max(0, netAmount(inv) - Number(inv.paid_amount || 0));
+}
+function todayIso() {
+  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+}
+function daysUntil(date) {
+  const due = Date.parse(date + "T00:00:00Z");
+  const now = Date.parse(todayIso() + "T00:00:00Z");
+  if (Number.isNaN(due)) return Number.POSITIVE_INFINITY;
+  return Math.round((due - now) / 864e5);
+}
+
+// backend/lib/dues.ts
+var STAGES = [
+  { days: 14, flag: "reminder_14_sent", title: "\u062A\u0630\u0643\u064A\u0631: \u0645\u0648\u0639\u062F \u0642\u0633\u0637 \u0628\u0639\u062F \u0623\u0633\u0628\u0648\u0639\u064A\u0646" },
+  { days: 7, flag: "reminder_7_sent", title: "\u062A\u0630\u0643\u064A\u0631: \u0645\u0648\u0639\u062F \u0642\u0633\u0637 \u0628\u0639\u062F \u0623\u0633\u0628\u0648\u0639" }
+];
+var OVERDUE_FLAG = "reminder_overdue_sent";
+var SWEEP_INTERVAL_MS = 60 * 60 * 1e3;
+var BATCH_LIMIT = 200;
+async function studentDues(studentId) {
+  const invoices = await fetchAll(
+    query2(invoicesRef, where2("student_id", "==", studentId))
+  );
+  const today = todayIso();
+  let outstanding = 0;
+  let overdueAmount = 0;
+  let overdueCount = 0;
+  let nextDue = null;
+  for (const inv of invoices) {
+    if (inv.status === "cancelled") continue;
+    const remaining = remainingAmount(inv);
+    if (remaining <= 0) continue;
+    outstanding += remaining;
+    if (inv.due_date && inv.due_date < today) {
+      overdueAmount += remaining;
+      overdueCount++;
+    } else if (inv.due_date && (nextDue === null || inv.due_date < nextDue)) {
+      nextDue = inv.due_date;
+    }
+  }
+  return {
+    outstanding,
+    overdue_amount: overdueAmount,
+    overdue_count: overdueCount,
+    next_due_date: nextDue,
+    blocked: overdueCount > 0
+  };
+}
+function money(amount) {
+  return `${amount.toLocaleString("en-US")} ${CURRENCY}`;
+}
+var lastSweep = 0;
+var sweepInFlight = null;
+function maybeSendDueReminders() {
+  const now = Date.now();
+  if (sweepInFlight || now - lastSweep < SWEEP_INTERVAL_MS) return;
+  lastSweep = now;
+  sweepInFlight = sendDueReminders().then(() => void 0).catch((err) => console.error("[dues] reminder sweep failed:", err?.message || err)).finally(() => {
+    sweepInFlight = null;
+  });
+}
+async function sendDueReminders() {
+  const snapshot = await getDocs2(query2(invoicesRef, where2("status", "in", ["unpaid", "partial"])));
+  const pending = [];
+  for (const d of snapshot.docs) {
+    const inv = { id: d.id, ...d.data() };
+    if (!inv.due_date || !inv.student_id) continue;
+    const remaining = remainingAmount(inv);
+    if (remaining <= 0) continue;
+    const left = daysUntil(inv.due_date);
+    if (left < 0) {
+      if (inv[OVERDUE_FLAG]) continue;
+      pending.push({
+        id: inv.id,
+        flag: OVERDUE_FLAG,
+        studentId: inv.student_id,
+        title: "\u062A\u0623\u062E\u0631 \u0641\u064A \u062A\u0633\u062F\u064A\u062F \u0627\u0644\u0642\u0633\u0637",
+        message: `\u0627\u0646\u062A\u0647\u0649 \u0645\u0648\u0639\u062F \u062A\u0633\u062F\u064A\u062F "${inv.title}" \u0628\u062A\u0627\u0631\u064A\u062E ${inv.due_date} \u0648\u0627\u0644\u0645\u0628\u0644\u063A \u0627\u0644\u0645\u062A\u0628\u0642\u064A ${money(remaining)}. \u064A\u0631\u062C\u0649 \u0645\u0631\u0627\u062C\u0639\u0629 \u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0645\u062F\u0631\u0633\u0629 \u0644\u0644\u062A\u0633\u062F\u064A\u062F.`
+      });
+      continue;
+    }
+    const stage = STAGES.find((s) => left <= s.days && !inv[s.flag]);
+    if (!stage) continue;
+    pending.push({
+      id: inv.id,
+      flag: stage.flag,
+      studentId: inv.student_id,
+      title: stage.title,
+      message: `\u064A\u0633\u062A\u062D\u0642 "${inv.title}" \u0628\u062A\u0627\u0631\u064A\u062E ${inv.due_date} (\u0628\u0639\u062F ${left} \u064A\u0648\u0645) \u0648\u0627\u0644\u0645\u0628\u0644\u063A \u0627\u0644\u0645\u062A\u0628\u0642\u064A ${money(remaining)}.`
+    });
+  }
+  for (const group of chunk(pending, BATCH_LIMIT)) {
+    const batch = writeBatch(db);
+    for (const item of group) {
+      batch.set(doc(notificationsRef), {
+        user_id: item.studentId,
+        title: item.title,
+        message: item.message,
+        type: "finance",
+        isRead: false,
+        createdAt: serverTimestamp2()
+      });
+      batch.update(doc(invoicesRef, item.id), { [item.flag]: true, [`${item.flag}_at`]: serverTimestamp2() });
+    }
+    await batch.commit();
+  }
+  if (pending.length > 0) console.log(`[dues] sent ${pending.length} fee reminder(s)`);
+  return { sent: pending.length };
+}
+
 // backend/routes/auth.routes.ts
 var router = Router();
 var loginLimiter = rateLimit({ windowMs: 10 * 60 * 1e3, max: 15, keyPrefix: "login" });
@@ -726,7 +848,7 @@ router.post(
   wrap(async (req, res) => {
     const uid = str(req.body?.uid, "\u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u062A\u0639\u0631\u064A\u0641\u064A", { max: 64 });
     const plain = str(req.body?.password, "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631", { max: 200 });
-    const snapshot = await getDocs2(query2(usersRef, where2("uid", "==", uid)));
+    const snapshot = await getDocs3(query3(usersRef, where3("uid", "==", uid)));
     const generic = "\u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u062F\u062E\u0648\u0644 \u063A\u064A\u0631 \u0635\u062D\u064A\u062D\u0629 (\u062A\u062D\u0642\u0642 \u0645\u0646 \u0627\u0644\u0640 UID \u0648\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631)";
     if (snapshot.empty) {
       audit(req, { action: "login_failed", entity: "user", summary: `\u0645\u062D\u0627\u0648\u0644\u0629 \u062F\u062E\u0648\u0644 \u0628\u0640 UID \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F: ${uid}` });
@@ -750,12 +872,12 @@ router.post(
       throw new HttpError(403, "\u062D\u0633\u0627\u0628\u0643 \u0642\u064A\u062F \u0627\u0644\u0645\u0631\u0627\u062C\u0639\u0629 \u0645\u0646 \u0642\u0628\u0644 \u0627\u0644\u0625\u062F\u0627\u0631\u0629 \u0648\u0644\u0645 \u062A\u062A\u0645 \u0627\u0644\u0645\u0648\u0627\u0641\u0642\u0629 \u0639\u0644\u064A\u0647 \u0628\u0639\u062F.");
     }
     if (!isHashed(data.password)) {
-      void updateDoc(doc(db, "users", userDoc.id), {
+      void updateDoc(doc2(db, "users", userDoc.id), {
         password: hashPassword(plain),
-        password_upgraded_at: serverTimestamp2()
+        password_upgraded_at: serverTimestamp3()
       }).catch((err) => console.error("[auth] password upgrade failed:", err));
     }
-    void updateDoc(doc(db, "users", userDoc.id), { last_login_at: serverTimestamp2() }).catch(() => {
+    void updateDoc(doc2(db, "users", userDoc.id), { last_login_at: serverTimestamp3() }).catch(() => {
     });
     const sessionUser = {
       id: userDoc.id,
@@ -765,9 +887,10 @@ router.post(
     };
     req.user = sessionUser;
     audit(req, { action: "login", entity: "user", entityId: userDoc.id, summary: `\u062A\u0633\u062C\u064A\u0644 \u062F\u062E\u0648\u0644 \u0646\u0627\u062C\u062D` });
+    const dues = sessionUser.role === "student" ? await studentDues(userDoc.id) : void 0;
     res.json({
       token: createToken(sessionUser),
-      user: sanitizeUser({ id: userDoc.id, ...data })
+      user: { ...sanitizeUser({ id: userDoc.id, ...data }), dues }
     });
   })
 );
@@ -775,12 +898,14 @@ router.get(
   "/me",
   requireAuth,
   wrap(async (req, res) => {
-    const snapshot = await getDocs2(query2(usersRef, where2("uid", "==", req.user.uid)));
+    const snapshot = await getDocs3(query3(usersRef, where3("uid", "==", req.user.uid)));
     if (snapshot.empty) throw new HttpError(401, "\u0627\u0644\u062D\u0633\u0627\u0628 \u0644\u0645 \u064A\u0639\u062F \u0645\u0648\u062C\u0648\u062F\u0627\u064B");
     const userDoc = snapshot.docs[0];
     const data = userDoc.data();
     if (data.status === "suspended") throw new HttpError(403, "\u062A\u0645 \u0625\u064A\u0642\u0627\u0641 \u0647\u0630\u0627 \u0627\u0644\u062D\u0633\u0627\u0628");
-    res.json(sanitizeUser({ id: userDoc.id, ...data }));
+    maybeSendDueReminders();
+    const dues = data.role === "student" ? await studentDues(userDoc.id) : void 0;
+    res.json({ ...sanitizeUser({ id: userDoc.id, ...data }), dues });
   })
 );
 router.post(
@@ -791,15 +916,15 @@ router.post(
     const current = str(req.body?.currentPassword, "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0627\u0644\u062D\u0627\u0644\u064A\u0629", { max: 200 });
     const next = password(req.body?.newPassword, "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0627\u0644\u062C\u062F\u064A\u062F\u0629");
     if (current === next) throw badRequest("\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0627\u0644\u062C\u062F\u064A\u062F\u0629 \u064A\u062C\u0628 \u0623\u0646 \u062A\u062E\u062A\u0644\u0641 \u0639\u0646 \u0627\u0644\u062D\u0627\u0644\u064A\u0629");
-    const snapshot = await getDocs2(query2(usersRef, where2("uid", "==", req.user.uid)));
+    const snapshot = await getDocs3(query3(usersRef, where3("uid", "==", req.user.uid)));
     if (snapshot.empty) throw new HttpError(401, "\u0627\u0644\u062D\u0633\u0627\u0628 \u0644\u0645 \u064A\u0639\u062F \u0645\u0648\u062C\u0648\u062F\u0627\u064B");
     const userDoc = snapshot.docs[0];
     if (!verifyPassword(current, userDoc.data().password)) {
       throw badRequest("\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0627\u0644\u062D\u0627\u0644\u064A\u0629 \u063A\u064A\u0631 \u0635\u062D\u064A\u062D\u0629");
     }
-    await updateDoc(doc(db, "users", userDoc.id), {
+    await updateDoc(doc2(db, "users", userDoc.id), {
       password: hashPassword(next),
-      password_changed_at: serverTimestamp2()
+      password_changed_at: serverTimestamp3()
     });
     audit(req, {
       action: "password_change",
@@ -817,16 +942,16 @@ import { Router as Router2 } from "express";
 import crypto2 from "node:crypto";
 import {
   addDoc as addDoc2,
-  doc as doc2,
+  doc as doc3,
   getDoc as getDoc2,
-  getDocs as getDocs3,
+  getDocs as getDocs4,
   limit as fsLimit2,
   orderBy as orderBy2,
-  query as query3,
+  query as query4,
   runTransaction,
-  serverTimestamp as serverTimestamp3,
+  serverTimestamp as serverTimestamp4,
   updateDoc as updateDoc2,
-  where as where3
+  where as where4
 } from "firebase/firestore";
 
 // backend/lib/cache.ts
@@ -863,16 +988,16 @@ function makeTrackingCode() {
 }
 async function allocateStudentUid() {
   const yearPrefix = String((/* @__PURE__ */ new Date()).getFullYear() % 100).padStart(2, "0");
-  const counterDoc = doc2(db, "counters", `student_uid_${yearPrefix}`);
+  const counterDoc = doc3(db, "counters", `student_uid_${yearPrefix}`);
   const seq = await runTransaction(db, async (tx) => {
     const snap = await tx.get(counterDoc);
     const next = (snap.exists() ? snap.data().value : 0) + 1;
-    tx.set(counterDoc, { value: next, updatedAt: serverTimestamp3() }, { merge: true });
+    tx.set(counterDoc, { value: next, updatedAt: serverTimestamp4() }, { merge: true });
     return next;
   });
   let candidate = `${yearPrefix}${String(seq).padStart(4, "0")}`;
   for (let attempt = 0; attempt < 20; attempt++) {
-    const clash = await getDocs3(query3(usersRef, where3("uid", "==", candidate), fsLimit2(1)));
+    const clash = await getDocs4(query4(usersRef, where4("uid", "==", candidate), fsLimit2(1)));
     if (clash.empty) return candidate;
     candidate = `${yearPrefix}${String(seq + attempt + 1).padStart(4, "0")}`;
   }
@@ -919,10 +1044,10 @@ router2.post(
     const plainPassword = password(b.password);
     const requestedClassId = isTeacher ? "" : str(b.requested_class_id, "\u0627\u0644\u0635\u0641 \u0627\u0644\u0645\u0637\u0644\u0648\u0628", { max: 64, optional: true });
     const [dupApplication, dupUser] = await Promise.all([
-      getDocs3(
-        query3(registrationsRef, where3("national_id", "==", application.national_id), fsLimit2(5))
+      getDocs4(
+        query4(registrationsRef, where4("national_id", "==", application.national_id), fsLimit2(5))
       ),
-      getDocs3(query3(usersRef, where3("national_id", "==", application.national_id), fsLimit2(1)))
+      getDocs4(query4(usersRef, where4("national_id", "==", application.national_id), fsLimit2(1)))
     ]);
     if (!dupUser.empty) {
       throw badRequest("\u064A\u0648\u062C\u062F \u062D\u0633\u0627\u0628 \u0645\u0633\u062C\u0644 \u0645\u0633\u0628\u0642\u0627\u064B \u0628\u0646\u0641\u0633 \u0631\u0642\u0645 \u0627\u0644\u0647\u0648\u064A\u0629. \u064A\u0631\u062C\u0649 \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062F\u062E\u0648\u0644 \u0623\u0648 \u0645\u0631\u0627\u062C\u0639\u0629 \u0627\u0644\u0625\u062F\u0627\u0631\u0629.");
@@ -935,7 +1060,7 @@ router2.post(
     }
     let requestedClassName = "";
     if (requestedClassId) {
-      const classDoc = await getDoc2(doc2(db, "classes", requestedClassId));
+      const classDoc = await getDoc2(doc3(db, "classes", requestedClassId));
       if (!classDoc.exists()) throw badRequest("\u0627\u0644\u0635\u0641 \u0627\u0644\u0645\u062E\u062A\u0627\u0631 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
       requestedClassName = classDoc.data().name;
     }
@@ -947,7 +1072,7 @@ router2.post(
       password: hashPassword(plainPassword),
       tracking_code: trackingCode,
       status: "pending",
-      createdAt: serverTimestamp3()
+      createdAt: serverTimestamp4()
     });
     audit(req, {
       action: "create",
@@ -967,7 +1092,7 @@ router2.get(
   rateLimit({ windowMs: 10 * 60 * 1e3, max: 40, keyPrefix: "regstatus" }),
   wrap(async (req, res) => {
     const code = str(req.params.code, "\u0631\u0642\u0645 \u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629", { min: 4, max: 32 }).toUpperCase();
-    const snapshot = await getDocs3(query3(registrationsRef, where3("tracking_code", "==", code), fsLimit2(1)));
+    const snapshot = await getDocs4(query4(registrationsRef, where4("tracking_code", "==", code), fsLimit2(1)));
     if (snapshot.empty) throw notFound("\u0644\u0627 \u064A\u0648\u062C\u062F \u0637\u0644\u0628 \u0628\u0647\u0630\u0627 \u0627\u0644\u0631\u0642\u0645. \u062A\u0623\u0643\u062F \u0645\u0646 \u0631\u0642\u0645 \u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629.");
     const data = snapshot.docs[0].data();
     res.json({
@@ -990,9 +1115,9 @@ router2.get(
     const pageSize = num(req.query.limit, "\u0627\u0644\u062D\u062F", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE });
     const cursor = req.query.after ? String(req.query.after) : null;
     const status = req.query.status ? oneOf(req.query.status, "\u0627\u0644\u062D\u0627\u0644\u0629", STATUSES) : null;
-    const filters = status ? [where3("status", "==", status)] : [];
-    const base = filters.length ? query3(registrationsRef, ...filters) : registrationsRef;
-    const q = query3(base, orderBy2("createdAt", "desc"));
+    const filters = status ? [where4("status", "==", status)] : [];
+    const base = filters.length ? query4(registrationsRef, ...filters) : registrationsRef;
+    const q = query4(base, orderBy2("createdAt", "desc"));
     const { data, nextCursor } = await fetchPage(q, pageSize, cursor, registrationsRef, {
       base,
       sortField: "createdAt",
@@ -1006,7 +1131,7 @@ router2.get(
   "/admin/registrations/:id",
   requireStaff,
   wrap(async (req, res) => {
-    const snap = await getDoc2(doc2(db, "registrations", req.params.id));
+    const snap = await getDoc2(doc3(db, "registrations", req.params.id));
     if (!snap.exists()) throw notFound("\u0637\u0644\u0628 \u0627\u0644\u062A\u0633\u062C\u064A\u0644 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const { password: password2, ...safe } = snap.data();
     res.json({ id: snap.id, ...safe });
@@ -1037,7 +1162,7 @@ async function approveTeacher(req, res, registrationDoc, registrationId, data) {
     registration_id: registrationId,
     approved_by: req.user.id,
     approved_by_name: req.user.name,
-    createdAt: serverTimestamp3()
+    createdAt: serverTimestamp4()
   });
   await updateDoc2(registrationDoc, {
     status: "approved",
@@ -1045,7 +1170,7 @@ async function approveTeacher(req, res, registrationDoc, registrationId, data) {
     created_user_id: newUser.id,
     reviewed_by: req.user.id,
     reviewed_by_name: req.user.name,
-    reviewed_at: serverTimestamp3()
+    reviewed_at: serverTimestamp4()
   });
   await addDoc2(notificationsRef, {
     user_id: newUser.id,
@@ -1053,7 +1178,7 @@ async function approveTeacher(req, res, registrationDoc, registrationId, data) {
     message: `\u0623\u0647\u0644\u0627\u064B \u0628\u0643 ${data.full_name}. \u0631\u0642\u0645\u0643 \u0627\u0644\u062A\u0639\u0631\u064A\u0641\u064A \u0644\u0644\u062F\u062E\u0648\u0644 \u0647\u0648: ${uid}.`,
     type: "registration",
     isRead: false,
-    createdAt: serverTimestamp3()
+    createdAt: serverTimestamp4()
   });
   invalidate("teachers");
   audit(req, {
@@ -1068,7 +1193,7 @@ router2.post(
   "/admin/registrations/:id/approve",
   requireStaff,
   wrap(async (req, res) => {
-    const registrationDoc = doc2(db, "registrations", req.params.id);
+    const registrationDoc = doc3(db, "registrations", req.params.id);
     const snap = await getDoc2(registrationDoc);
     if (!snap.exists()) throw notFound("\u0637\u0644\u0628 \u0627\u0644\u062A\u0633\u062C\u064A\u0644 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const data = snap.data();
@@ -1083,7 +1208,7 @@ router2.post(
       optional: true
     });
     if (!classId) throw badRequest("\u064A\u062C\u0628 \u062A\u062D\u062F\u064A\u062F \u0627\u0644\u0635\u0641 \u0627\u0644\u062F\u0631\u0627\u0633\u064A \u0642\u0628\u0644 \u0627\u0644\u0645\u0648\u0627\u0641\u0642\u0629");
-    const classDoc = await getDoc2(doc2(db, "classes", classId));
+    const classDoc = await getDoc2(doc3(db, "classes", classId));
     if (!classDoc.exists()) throw badRequest("\u0627\u0644\u0635\u0641 \u0627\u0644\u0645\u062E\u062A\u0627\u0631 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const uid = await allocateStudentUid();
     const newUser = await addDoc2(usersRef, {
@@ -1110,12 +1235,12 @@ router2.post(
       registration_id: snap.id,
       approved_by: req.user.id,
       approved_by_name: req.user.name,
-      createdAt: serverTimestamp3()
+      createdAt: serverTimestamp4()
     });
     await addDoc2(enrollmentsRef, {
       student_id: newUser.id,
       class_id: classId,
-      createdAt: serverTimestamp3()
+      createdAt: serverTimestamp4()
     });
     await updateDoc2(registrationDoc, {
       status: "approved",
@@ -1125,7 +1250,7 @@ router2.post(
       approved_class_name: classDoc.data().name,
       reviewed_by: req.user.id,
       reviewed_by_name: req.user.name,
-      reviewed_at: serverTimestamp3()
+      reviewed_at: serverTimestamp4()
     });
     await addDoc2(notificationsRef, {
       user_id: newUser.id,
@@ -1133,7 +1258,7 @@ router2.post(
       message: `\u0623\u0647\u0644\u0627\u064B \u0628\u0643 ${data.full_name}. \u0631\u0642\u0645\u0643 \u0627\u0644\u062A\u0639\u0631\u064A\u0641\u064A \u0644\u0644\u062F\u062E\u0648\u0644 \u0647\u0648: ${uid}. \u062A\u0645 \u062A\u0633\u062C\u064A\u0644\u0643 \u0641\u064A ${classDoc.data().name}.`,
       type: "registration",
       isRead: false,
-      createdAt: serverTimestamp3()
+      createdAt: serverTimestamp4()
     });
     const feeAmount = Number(req.body?.initial_fee_amount ?? 0);
     if (feeAmount > 0) {
@@ -1154,7 +1279,7 @@ router2.post(
         status: "unpaid",
         created_by: req.user.id,
         created_by_name: req.user.name,
-        createdAt: serverTimestamp3()
+        createdAt: serverTimestamp4()
       });
     }
     invalidate("students");
@@ -1174,7 +1299,7 @@ router2.post(
   requireStaff,
   wrap(async (req, res) => {
     const reason = str(req.body?.reason, "\u0633\u0628\u0628 \u0627\u0644\u0631\u0641\u0636", { min: 3, max: 500 });
-    const registrationDoc = doc2(db, "registrations", req.params.id);
+    const registrationDoc = doc3(db, "registrations", req.params.id);
     const snap = await getDoc2(registrationDoc);
     if (!snap.exists()) throw notFound("\u0637\u0644\u0628 \u0627\u0644\u062A\u0633\u062C\u064A\u0644 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const data = snap.data();
@@ -1184,7 +1309,7 @@ router2.post(
       rejection_reason: reason,
       reviewed_by: req.user.id,
       reviewed_by_name: req.user.name,
-      reviewed_at: serverTimestamp3()
+      reviewed_at: serverTimestamp4()
     });
     audit(req, {
       action: "reject",
@@ -1200,12 +1325,12 @@ router2.delete(
   "/admin/registrations/:id",
   requireAdmin,
   wrap(async (req, res) => {
-    const registrationDoc = doc2(db, "registrations", req.params.id);
+    const registrationDoc = doc3(db, "registrations", req.params.id);
     const snap = await getDoc2(registrationDoc);
     if (!snap.exists()) throw notFound("\u0637\u0644\u0628 \u0627\u0644\u062A\u0633\u062C\u064A\u0644 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     await updateDoc2(registrationDoc, {
       archived: true,
-      archived_at: serverTimestamp3(),
+      archived_at: serverTimestamp4(),
       archived_by: req.user.id
     });
     audit(req, {
@@ -1224,20 +1349,20 @@ import { Router as Router3 } from "express";
 import {
   addDoc as addDoc3,
   deleteDoc,
-  doc as doc3,
+  doc as doc4,
   getDoc as getDoc3,
-  getDocs as getDocs4,
+  getDocs as getDocs5,
   limit as fsLimit3,
   orderBy as orderBy3,
-  query as query5,
-  serverTimestamp as serverTimestamp4,
+  query as query6,
+  serverTimestamp as serverTimestamp5,
   updateDoc as updateDoc3,
-  where as where5,
-  writeBatch
+  where as where6,
+  writeBatch as writeBatch2
 } from "firebase/firestore";
 
 // backend/lib/roster.ts
-import { query as query4, where as where4 } from "firebase/firestore";
+import { query as query5, where as where5 } from "firebase/firestore";
 var ROSTER_TTL_MS = 6e4;
 function normalizeArabic(text) {
   return String(text ?? "").replace(/[ً-ْٰـ]/g, "").replace(/[إأآٱا]/g, "\u0627").replace(/[ىی]/g, "\u064A").replace(/ؤ/g, "\u0648").replace(/ئ/g, "\u064A").replace(/ة/g, "\u0647").replace(/\s+/g, " ").trim().toLowerCase();
@@ -1250,7 +1375,7 @@ var byName = (a, b) => String(a.name ?? "").localeCompare(String(b.name ?? ""), 
 async function studentRoster() {
   return cached("students:roster", ROSTER_TTL_MS, async () => {
     const [students, enrollments, classes] = await Promise.all([
-      fetchAll(query4(usersRef, where4("role", "==", "student"))),
+      fetchAll(query5(usersRef, where5("role", "==", "student"))),
       fetchAll(enrollmentsRef),
       fetchAll(classesRef)
     ]);
@@ -1269,7 +1394,7 @@ async function studentRoster() {
 async function teacherRoster() {
   return cached("teachers:roster", ROSTER_TTL_MS, async () => {
     const teachers = await fetchAll(
-      query4(usersRef, where4("role", "==", "teacher"))
+      query5(usersRef, where5("role", "==", "teacher"))
     );
     return teachers.map((t) => sanitizeUser(t)).sort(byName);
   });
@@ -1287,7 +1412,7 @@ function paginate(rows, offset, pageSize) {
 
 // backend/routes/admin.routes.ts
 var router3 = Router3();
-var BATCH_LIMIT = 450;
+var BATCH_LIMIT2 = 450;
 var DEFAULT_PAGE_SIZE2 = 20;
 router3.get(
   "/admin/students",
@@ -1318,8 +1443,8 @@ router3.get(
     if (req.user.role === "teacher") {
       const teacherId = req.user.id;
       const [assigned, legacy] = await Promise.all([
-        fetchAll(query5(classesRef, where5("teacher_ids", "array-contains", teacherId))),
-        fetchAll(query5(classesRef, where5("teacher_id", "==", teacherId)))
+        fetchAll(query6(classesRef, where6("teacher_ids", "array-contains", teacherId))),
+        fetchAll(query6(classesRef, where6("teacher_id", "==", teacherId)))
       ]);
       const classIds = new Set([...assigned, ...legacy].map((c) => c.id));
       visible = roster.filter((s) => s.class_id && classIds.has(s.class_id));
@@ -1340,7 +1465,7 @@ router3.get(
   "/admin/students/:id",
   requireStaff,
   wrap(async (req, res) => {
-    const snap = await getDoc3(doc3(db, "users", req.params.id));
+    const snap = await getDoc3(doc4(db, "users", req.params.id));
     if (!snap.exists() || snap.data().role !== "student") throw notFound("\u0627\u0644\u0637\u0627\u0644\u0628 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     res.json(sanitizeUser({ id: snap.id, ...snap.data() }));
   })
@@ -1352,7 +1477,7 @@ router3.post(
     const name = str(req.body?.name, "\u0627\u0633\u0645 \u0627\u0644\u0637\u0627\u0644\u0628", { min: 3, max: 120 });
     const uid = str(req.body?.uid, "\u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u062A\u0639\u0631\u064A\u0641\u064A", { min: 3, max: 64 });
     const plain = password(req.body?.password);
-    const clash = await getDocs4(query5(usersRef, where5("uid", "==", uid), fsLimit3(1)));
+    const clash = await getDocs5(query6(usersRef, where6("uid", "==", uid), fsLimit3(1)));
     if (!clash.empty) throw badRequest("\u0647\u0630\u0627 \u0627\u0644\u0640 UID \u0645\u0633\u062A\u062E\u062F\u0645 \u0628\u0627\u0644\u0641\u0639\u0644\u060C \u064A\u0631\u062C\u0649 \u0627\u062E\u062A\u064A\u0627\u0631 \u0648\u0627\u062D\u062F \u0622\u062E\u0631");
     const created = await addDoc3(usersRef, {
       name,
@@ -1365,11 +1490,11 @@ router3.post(
       guardian_name: str(req.body?.guardian_name, "\u0627\u0633\u0645 \u0648\u0644\u064A \u0627\u0644\u0623\u0645\u0631", { max: 120, optional: true }),
       guardian_phone: phone(req.body?.guardian_phone, "\u0647\u0627\u062A\u0641 \u0648\u0644\u064A \u0627\u0644\u0623\u0645\u0631", { optional: true }),
       national_id: str(req.body?.national_id, "\u0631\u0642\u0645 \u0627\u0644\u0647\u0648\u064A\u0629", { max: 40, optional: true }),
-      createdAt: serverTimestamp4()
+      createdAt: serverTimestamp5()
     });
     const classId = str(req.body?.class_id, "\u0627\u0644\u0635\u0641", { max: 64, optional: true });
     if (classId) {
-      await addDoc3(enrollmentsRef, { student_id: created.id, class_id: classId, createdAt: serverTimestamp4() });
+      await addDoc3(enrollmentsRef, { student_id: created.id, class_id: classId, createdAt: serverTimestamp5() });
     }
     invalidate("students");
     audit(req, { action: "create", entity: "student", entityId: created.id, summary: `\u0625\u0636\u0627\u0641\u0629 \u0637\u0627\u0644\u0628 ${name} (${uid})` });
@@ -1380,7 +1505,7 @@ router3.put(
   "/admin/students/:id",
   requireStaff,
   wrap(async (req, res) => {
-    const target = doc3(db, "users", req.params.id);
+    const target = doc4(db, "users", req.params.id);
     const snap = await getDoc3(target);
     if (!snap.exists() || snap.data().role !== "student") throw notFound("\u0627\u0644\u0637\u0627\u0644\u0628 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const b = req.body || {};
@@ -1412,14 +1537,14 @@ router3.put(
     if (isFullAdmin && b.uid !== void 0) {
       const uid = str(b.uid, "\u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u062A\u0639\u0631\u064A\u0641\u064A", { min: 3, max: 64 });
       if (uid !== snap.data().uid) {
-        const clash = await getDocs4(query5(usersRef, where5("uid", "==", uid), fsLimit3(1)));
+        const clash = await getDocs5(query6(usersRef, where6("uid", "==", uid), fsLimit3(1)));
         if (!clash.empty) throw badRequest("\u0647\u0630\u0627 \u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u062A\u0639\u0631\u064A\u0641\u064A \u0645\u0633\u062A\u062E\u062F\u0645 \u0628\u0627\u0644\u0641\u0639\u0644");
         patch.uid = uid;
         patch.username = uid;
       }
     }
     if (Object.keys(patch).length === 0) throw badRequest("\u0644\u0627 \u062A\u0648\u062C\u062F \u0628\u064A\u0627\u0646\u0627\u062A \u0644\u0644\u062A\u062D\u062F\u064A\u062B");
-    patch.updatedAt = serverTimestamp4();
+    patch.updatedAt = serverTimestamp5();
     await updateDoc3(target, patch);
     invalidate("students");
     audit(req, {
@@ -1437,19 +1562,19 @@ router3.delete(
   requireAdmin,
   wrap(async (req, res) => {
     const studentId = req.params.id;
-    const snap = await getDoc3(doc3(db, "users", studentId));
+    const snap = await getDoc3(doc4(db, "users", studentId));
     if (!snap.exists()) throw notFound("\u0627\u0644\u0637\u0627\u0644\u0628 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const related = await Promise.all([
-      getDocs4(query5(enrollmentsRef, where5("student_id", "==", studentId))),
-      getDocs4(query5(notificationsRef, where5("user_id", "==", studentId)))
+      getDocs5(query6(enrollmentsRef, where6("student_id", "==", studentId))),
+      getDocs5(query6(notificationsRef, where6("user_id", "==", studentId)))
     ]);
     const refs = related.flatMap((s) => s.docs.map((d) => d.ref));
-    for (const group of chunk(refs, BATCH_LIMIT)) {
-      const batch = writeBatch(db);
+    for (const group of chunk(refs, BATCH_LIMIT2)) {
+      const batch = writeBatch2(db);
       group.forEach((ref) => batch.delete(ref));
       await batch.commit();
     }
-    await deleteDoc(doc3(db, "users", studentId));
+    await deleteDoc(doc4(db, "users", studentId));
     invalidate("students");
     audit(req, {
       action: "delete",
@@ -1494,7 +1619,7 @@ router3.post(
       status: "active",
       subjects: stringArray(req.body?.subjects, "\u0627\u0644\u0645\u0648\u0627\u062F", { max: 40 }),
       phone: phone(req.body?.phone, "\u0631\u0642\u0645 \u0627\u0644\u0647\u0627\u062A\u0641", { optional: true }),
-      createdAt: serverTimestamp4()
+      createdAt: serverTimestamp5()
     });
     invalidate("teachers");
     audit(req, { action: "create", entity: "teacher", entityId: created.id, summary: `\u0625\u0636\u0627\u0641\u0629 \u0645\u0639\u0644\u0645 ${name} (${uid})` });
@@ -1505,7 +1630,7 @@ router3.put(
   "/admin/teachers/:id",
   requireAdmin,
   wrap(async (req, res) => {
-    const target = doc3(db, "users", req.params.id);
+    const target = doc4(db, "users", req.params.id);
     const snap = await getDoc3(target);
     if (!snap.exists()) throw notFound("\u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const b = req.body || {};
@@ -1529,14 +1654,14 @@ router3.put(
     if (b.uid !== void 0) {
       const uid = str(b.uid, "\u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u062A\u0639\u0631\u064A\u0641\u064A", { min: 3, max: 64 });
       if (uid !== snap.data().uid) {
-        const clash = await getDocs4(query5(usersRef, where5("uid", "==", uid), fsLimit3(1)));
+        const clash = await getDocs5(query6(usersRef, where6("uid", "==", uid), fsLimit3(1)));
         if (!clash.empty) throw badRequest("\u0647\u0630\u0627 \u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u062A\u0639\u0631\u064A\u0641\u064A \u0645\u0633\u062A\u062E\u062F\u0645 \u0628\u0627\u0644\u0641\u0639\u0644");
         patch.uid = uid;
         patch.username = uid;
       }
     }
     if (Object.keys(patch).length === 0) throw badRequest("\u0644\u0627 \u062A\u0648\u062C\u062F \u0628\u064A\u0627\u0646\u0627\u062A \u0644\u0644\u062A\u062D\u062F\u064A\u062B");
-    patch.updatedAt = serverTimestamp4();
+    patch.updatedAt = serverTimestamp5();
     await updateDoc3(target, patch);
     invalidate("teachers");
     audit(req, {
@@ -1555,29 +1680,29 @@ router3.delete(
   wrap(async (req, res) => {
     const teacherId = req.params.id;
     if (teacherId === req.user.id) throw badRequest("\u0644\u0627 \u064A\u0645\u0643\u0646\u0643 \u062D\u0630\u0641 \u062D\u0633\u0627\u0628\u0643 \u0627\u0644\u062E\u0627\u0635");
-    const snap = await getDoc3(doc3(db, "users", teacherId));
+    const snap = await getDoc3(doc4(db, "users", teacherId));
     if (!snap.exists()) throw notFound("\u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const classes = await fetchAll(classesRef);
     const affected = classes.filter(
       (c) => (c.teacher_ids || []).includes(teacherId) || c.teacher_id === teacherId
     );
-    for (const group of chunk(affected, BATCH_LIMIT)) {
-      const batch = writeBatch(db);
+    for (const group of chunk(affected, BATCH_LIMIT2)) {
+      const batch = writeBatch2(db);
       for (const c of group) {
         const ids = c.teacher_ids || (c.teacher_id ? [c.teacher_id] : []);
         const names = c.teacher_names || (c.teacher_name ? [c.teacher_name] : []);
         const keep = ids.map((id, i) => ({ id, name: names[i] || "\u0645\u0639\u0644\u0645" })).filter((t) => t.id !== teacherId);
-        batch.update(doc3(db, "classes", c.id), {
+        batch.update(doc4(db, "classes", c.id), {
           teacher_ids: keep.map((t) => t.id),
           teacher_names: keep.map((t) => t.name),
           teacher_id: null,
           teacher_name: null,
-          updatedAt: serverTimestamp4()
+          updatedAt: serverTimestamp5()
         });
       }
       await batch.commit();
     }
-    await deleteDoc(doc3(db, "users", teacherId));
+    await deleteDoc(doc4(db, "users", teacherId));
     invalidate("classes");
     invalidate("teachers");
     audit(req, {
@@ -1593,7 +1718,7 @@ router3.get(
   "/admin/assistants",
   requireAdmin,
   wrap(async (_req, res) => {
-    const rows = await fetchAll(query5(usersRef, where5("role", "==", "assistant_admin")));
+    const rows = await fetchAll(query6(usersRef, where6("role", "==", "assistant_admin")));
     res.json(rows.map(sanitizeUser));
   })
 );
@@ -1612,7 +1737,7 @@ router3.post(
       password: hashPassword(plain),
       role: "assistant_admin",
       status: "active",
-      createdAt: serverTimestamp4()
+      createdAt: serverTimestamp5()
     });
     audit(req, {
       action: "create",
@@ -1628,13 +1753,13 @@ router3.post(
   requireAdmin,
   wrap(async (req, res) => {
     const newPassword = password(req.body?.new_password, "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0627\u0644\u062C\u062F\u064A\u062F\u0629");
-    const target = doc3(db, "users", req.params.id);
+    const target = doc4(db, "users", req.params.id);
     const snap = await getDoc3(target);
     if (!snap.exists()) throw notFound("\u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     await updateDoc3(target, {
       password: hashPassword(newPassword),
       password_reset_by: req.user.id,
-      password_changed_at: serverTimestamp4()
+      password_changed_at: serverTimestamp5()
     });
     await addDoc3(notificationsRef, {
       user_id: snap.id,
@@ -1642,7 +1767,7 @@ router3.post(
       message: "\u0642\u0627\u0645\u062A \u0627\u0644\u0625\u062F\u0627\u0631\u0629 \u0628\u0625\u0639\u0627\u062F\u0629 \u062A\u0639\u064A\u064A\u0646 \u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0627\u0644\u062E\u0627\u0635\u0629 \u0628\u062D\u0633\u0627\u0628\u0643. \u064A\u0631\u062C\u0649 \u0645\u0631\u0627\u062C\u0639\u0629 \u0627\u0644\u0625\u062F\u0627\u0631\u0629 \u0644\u0627\u0633\u062A\u0644\u0627\u0645\u0647\u0627.",
       type: "security",
       isRead: false,
-      createdAt: serverTimestamp4()
+      createdAt: serverTimestamp5()
     });
     audit(req, {
       action: "password_reset",
@@ -1666,24 +1791,24 @@ router3.post(
       recipients = [studentId];
     } else if (classId) {
       const enrollments = await fetchAll(
-        query5(enrollmentsRef, where5("class_id", "==", classId))
+        query6(enrollmentsRef, where6("class_id", "==", classId))
       );
       recipients = [...new Set(enrollments.map((e) => e.student_id))];
     } else {
-      const students = await fetchAll(query5(usersRef, where5("role", "==", "student")));
+      const students = await fetchAll(query6(usersRef, where6("role", "==", "student")));
       recipients = students.map((s) => s.id);
     }
     if (recipients.length === 0) return res.json({ success: true, count: 0 });
-    for (const group of chunk(recipients, BATCH_LIMIT)) {
-      const batch = writeBatch(db);
+    for (const group of chunk(recipients, BATCH_LIMIT2)) {
+      const batch = writeBatch2(db);
       for (const id of group) {
-        batch.set(doc3(notificationsRef), {
+        batch.set(doc4(notificationsRef), {
           user_id: id,
           title,
           message,
           type: "broadcast",
           isRead: false,
-          createdAt: serverTimestamp4()
+          createdAt: serverTimestamp5()
         });
       }
       await batch.commit();
@@ -1703,13 +1828,13 @@ router3.get(
   wrap(async (req, res) => {
     const max = num(req.query.limit, "\u0627\u0644\u062D\u062F", { min: 1, max: 500, optional: true, default: 100 });
     const filters = [];
-    if (req.query.action) filters.push(where5("action", "==", String(req.query.action)));
-    if (req.query.actor_id) filters.push(where5("actor_id", "==", String(req.query.actor_id)));
+    if (req.query.action) filters.push(where6("action", "==", String(req.query.action)));
+    if (req.query.actor_id) filters.push(where6("actor_id", "==", String(req.query.actor_id)));
     const rows = await fetchIndexed(
-      query5(auditRef, ...filters, orderBy3("createdAt", "desc"), fsLimit3(max)),
+      query6(auditRef, ...filters, orderBy3("createdAt", "desc"), fsLimit3(max)),
       async () => {
         const all = await fetchAll(
-          filters.length ? query5(auditRef, ...filters) : auditRef
+          filters.length ? query6(auditRef, ...filters) : auditRef
         );
         all.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
         return all.slice(0, max);
@@ -1736,9 +1861,9 @@ router3.post(
       const n = parseInt(row.uid, 10);
       return Number.isNaN(n) ? max : Math.max(max, n);
     }, 0);
-    const batch = writeBatch(db);
+    const batch = writeBatch2(db);
     for (let i = 1; i <= count; i++) {
-      batch.set(doc3(validUidsRef), { uid: String(maxId + i), used: false, createdAt: serverTimestamp4() });
+      batch.set(doc4(validUidsRef), { uid: String(maxId + i), used: false, createdAt: serverTimestamp5() });
     }
     await batch.commit();
     audit(req, { action: "create", entity: "valid_uid", summary: `\u062A\u0648\u0644\u064A\u062F ${count} \u0631\u0642\u0645 \u062A\u0639\u0631\u064A\u0641\u064A` });
@@ -1750,9 +1875,9 @@ router3.post(
   requireStaff,
   wrap(async (req, res) => {
     const uid = str(req.body?.uid, "\u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u062A\u0639\u0631\u064A\u0641\u064A", { min: 1, max: 64 });
-    const clash = await getDocs4(query5(validUidsRef, where5("uid", "==", uid), fsLimit3(1)));
+    const clash = await getDocs5(query6(validUidsRef, where6("uid", "==", uid), fsLimit3(1)));
     if (!clash.empty) throw badRequest("\u0647\u0630\u0627 \u0627\u0644\u0640 UID \u0645\u0648\u062C\u0648\u062F \u0628\u0627\u0644\u0641\u0639\u0644");
-    await addDoc3(validUidsRef, { uid, used: false, createdAt: serverTimestamp4() });
+    await addDoc3(validUidsRef, { uid, used: false, createdAt: serverTimestamp5() });
     audit(req, { action: "create", entity: "valid_uid", summary: `\u0625\u0636\u0627\u0641\u0629 \u0631\u0642\u0645 \u062A\u0639\u0631\u064A\u0641\u064A ${uid}` });
     res.json({ success: true });
   })
@@ -1761,7 +1886,7 @@ router3.delete(
   "/admin/uids/:id",
   requireStaff,
   wrap(async (req, res) => {
-    await deleteDoc(doc3(db, "valid_uids", req.params.id));
+    await deleteDoc(doc4(db, "valid_uids", req.params.id));
     audit(req, { action: "delete", entity: "valid_uid", entityId: req.params.id, summary: "\u062D\u0630\u0641 \u0631\u0642\u0645 \u062A\u0639\u0631\u064A\u0641\u064A" });
     res.json({ success: true });
   })
@@ -1773,45 +1898,37 @@ import { Router as Router5 } from "express";
 import {
   addDoc as addDoc5,
   deleteDoc as deleteDoc2,
-  doc as doc5,
+  doc as doc6,
   getDoc as getDoc5,
-  getDocs as getDocs6,
-  query as query7,
-  serverTimestamp as serverTimestamp6,
+  getDocs as getDocs7,
+  query as query8,
+  serverTimestamp as serverTimestamp7,
   updateDoc as updateDoc5,
-  where as where7,
-  writeBatch as writeBatch3
+  where as where8,
+  writeBatch as writeBatch4
 } from "firebase/firestore";
 
 // backend/routes/payments.routes.ts
 import { Router as Router4 } from "express";
 import {
   addDoc as addDoc4,
-  doc as doc4,
+  doc as doc5,
   getDoc as getDoc4,
   orderBy as orderBy4,
-  query as query6,
+  query as query7,
   runTransaction as runTransaction2,
-  serverTimestamp as serverTimestamp5,
+  serverTimestamp as serverTimestamp6,
   updateDoc as updateDoc4,
-  where as where6,
-  writeBatch as writeBatch2
+  where as where7,
+  writeBatch as writeBatch3
 } from "firebase/firestore";
 var router4 = Router4();
-var CURRENCY = "IQD";
 var CATEGORIES = ["\u0642\u0633\u0637 \u062F\u0631\u0627\u0633\u064A", "\u0631\u0633\u0648\u0645 \u062A\u0633\u062C\u064A\u0644", "\u0643\u062A\u0628 \u0648\u0642\u0631\u0637\u0627\u0633\u064A\u0629", "\u0646\u0642\u0644 \u0645\u062F\u0631\u0633\u064A", "\u0632\u064A \u0645\u062F\u0631\u0633\u064A", "\u0646\u0634\u0627\u0637\u0627\u062A", "\u0623\u062E\u0631\u0649"];
 var METHODS = ["\u0646\u0642\u062F\u064A", "\u062A\u062D\u0648\u064A\u0644 \u0628\u0646\u0643\u064A", "\u0645\u062D\u0641\u0638\u0629 \u0625\u0644\u0643\u062A\u0631\u0648\u0646\u064A\u0629", "\u0634\u064A\u0643"];
 var INVOICE_STATUSES = ["unpaid", "partial", "paid", "cancelled"];
-var BATCH_LIMIT2 = 450;
+var BATCH_LIMIT3 = 450;
 var DEFAULT_PAGE_SIZE3 = 20;
 var FINANCE_TTL_MS = 3e4;
-function netAmount(inv) {
-  return Math.max(0, Number(inv.amount || 0) - Number(inv.discount || 0));
-}
-function remainingAmount(inv) {
-  if (inv.status === "cancelled") return 0;
-  return Math.max(0, netAmount(inv) - Number(inv.paid_amount || 0));
-}
 function deriveStatus(inv) {
   if (inv.status === "cancelled") return "cancelled";
   const paid = Number(inv.paid_amount || 0);
@@ -1827,13 +1944,13 @@ router4.get(
     const pageSize = num(req.query.limit, "\u0627\u0644\u062D\u062F", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE3 });
     const cursor = req.query.after ? String(req.query.after) : null;
     const filters = [];
-    if (req.query.student_id) filters.push(where6("student_id", "==", String(req.query.student_id)));
-    if (req.query.class_id) filters.push(where6("class_id", "==", String(req.query.class_id)));
+    if (req.query.student_id) filters.push(where7("student_id", "==", String(req.query.student_id)));
+    if (req.query.class_id) filters.push(where7("class_id", "==", String(req.query.class_id)));
     if (req.query.status) {
-      filters.push(where6("status", "==", oneOf(req.query.status, "\u0627\u0644\u062D\u0627\u0644\u0629", INVOICE_STATUSES)));
+      filters.push(where7("status", "==", oneOf(req.query.status, "\u0627\u0644\u062D\u0627\u0644\u0629", INVOICE_STATUSES)));
     }
-    const base = filters.length ? query6(invoicesRef, ...filters) : invoicesRef;
-    const q = query6(base, orderBy4("createdAt", "desc"));
+    const base = filters.length ? query7(invoicesRef, ...filters) : invoicesRef;
+    const q = query7(base, orderBy4("createdAt", "desc"));
     const { data, nextCursor } = await fetchPage(q, pageSize, cursor, invoicesRef, {
       base,
       sortField: "createdAt",
@@ -1871,11 +1988,11 @@ router4.post(
     } else if (target === "class") {
       classId = str(b.class_id, "\u0627\u0644\u0635\u0641", { max: 64 });
       const enrollments2 = await fetchAll(
-        query6(enrollmentsRef, where6("class_id", "==", classId))
+        query7(enrollmentsRef, where7("class_id", "==", classId))
       );
       studentIds = [...new Set(enrollments2.map((e) => e.student_id))];
     } else {
-      const students2 = await fetchAll(query6(usersRef, where6("role", "==", "student")));
+      const students2 = await fetchAll(query7(usersRef, where7("role", "==", "student")));
       studentIds = students2.filter((s) => s.status !== "suspended").map((s) => s.id);
     }
     if (studentIds.length === 0) throw badRequest("\u0644\u0627 \u064A\u0648\u062C\u062F \u0637\u0644\u0627\u0628 \u0645\u0637\u0627\u0628\u0642\u0648\u0646 \u0644\u0625\u0635\u062F\u0627\u0631 \u0627\u0644\u0631\u0633\u0648\u0645 \u0644\u0647\u0645");
@@ -1886,13 +2003,13 @@ router4.post(
       (await fetchAll(classesRef)).map((c) => [c.id, c.name])
     );
     let created = 0;
-    for (const group of chunk(studentIds, BATCH_LIMIT2)) {
-      const batch = writeBatch2(db);
+    for (const group of chunk(studentIds, BATCH_LIMIT3)) {
+      const batch = writeBatch3(db);
       for (const studentId of group) {
         const student = students.get(studentId);
         if (!student) continue;
         const studentClassId = classId || enrollmentByStudent.get(studentId) || null;
-        batch.set(doc4(invoicesRef), {
+        batch.set(doc5(invoicesRef), {
           student_id: studentId,
           student_name: student.name,
           student_uid: student.uid,
@@ -1910,15 +2027,15 @@ router4.post(
           status: "unpaid",
           created_by: req.user.id,
           created_by_name: req.user.name,
-          createdAt: serverTimestamp5()
+          createdAt: serverTimestamp6()
         });
-        batch.set(doc4(notificationsRef), {
+        batch.set(doc5(notificationsRef), {
           user_id: studentId,
           title: "\u0631\u0633\u0648\u0645 \u0645\u0627\u0644\u064A\u0629 \u062C\u062F\u064A\u062F\u0629",
           message: `\u062A\u0645 \u0625\u0635\u062F\u0627\u0631 "${title}" \u0628\u0645\u0628\u0644\u063A ${(amount - discount).toLocaleString("en-US")} ${CURRENCY}${dueDate ? ` \u2014 \u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0627\u0633\u062A\u062D\u0642\u0627\u0642 ${dueDate}` : ""}`,
           type: "invoice",
           isRead: false,
-          createdAt: serverTimestamp5()
+          createdAt: serverTimestamp6()
         });
         created++;
       }
@@ -1938,7 +2055,7 @@ router4.put(
   "/admin/invoices/:id",
   requireStaff,
   wrap(async (req, res) => {
-    const invoiceDoc = doc4(db, "invoices", req.params.id);
+    const invoiceDoc = doc5(db, "invoices", req.params.id);
     const snap = await getDoc4(invoiceDoc);
     if (!snap.exists()) throw notFound("\u0633\u0646\u062F \u0627\u0644\u0631\u0633\u0648\u0645 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const current = snap.data();
@@ -1956,7 +2073,7 @@ router4.put(
       throw badRequest("\u0627\u0644\u062E\u0635\u0645 \u0644\u0627 \u064A\u0645\u0643\u0646 \u0623\u0646 \u064A\u062A\u062C\u0627\u0648\u0632 \u0627\u0644\u0645\u0628\u0644\u063A \u0627\u0644\u0623\u0635\u0644\u064A");
     }
     patch.status = deriveStatus(merged);
-    patch.updatedAt = serverTimestamp5();
+    patch.updatedAt = serverTimestamp6();
     await updateDoc4(invoiceDoc, patch);
     invalidate("finance");
     audit(req, {
@@ -1973,7 +2090,7 @@ router4.delete(
   "/admin/invoices/:id",
   requireAdmin,
   wrap(async (req, res) => {
-    const invoiceDoc = doc4(db, "invoices", req.params.id);
+    const invoiceDoc = doc5(db, "invoices", req.params.id);
     const snap = await getDoc4(invoiceDoc);
     if (!snap.exists()) throw notFound("\u0633\u0646\u062F \u0627\u0644\u0631\u0633\u0648\u0645 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const data = snap.data();
@@ -1983,7 +2100,7 @@ router4.delete(
     await updateDoc4(invoiceDoc, {
       status: "cancelled",
       cancelled_by: req.user.id,
-      cancelled_at: serverTimestamp5()
+      cancelled_at: serverTimestamp6()
     });
     invalidate("finance");
     audit(req, {
@@ -2003,7 +2120,7 @@ router4.post(
     const method = oneOf(req.body?.method, "\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u062F\u0641\u0639", METHODS, "\u0646\u0642\u062F\u064A");
     const paidAt = isoDate(req.body?.paid_at, "\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u062F\u0641\u0639", { optional: true }) || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const note = str(req.body?.note, "\u0645\u0644\u0627\u062D\u0638\u0629", { max: 300, optional: true });
-    const invoiceDoc = doc4(db, "invoices", req.params.id);
+    const invoiceDoc = doc5(db, "invoices", req.params.id);
     const result = await runTransaction2(db, async (tx) => {
       const snap = await tx.get(invoiceDoc);
       if (!snap.exists()) throw notFound("\u0633\u0646\u062F \u0627\u0644\u0631\u0633\u0648\u0645 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
@@ -2017,8 +2134,8 @@ router4.post(
       }
       const newPaid = Number(data.paid_amount || 0) + amount;
       const newStatus = deriveStatus({ ...data, paid_amount: newPaid });
-      tx.update(invoiceDoc, { paid_amount: newPaid, status: newStatus, updatedAt: serverTimestamp5() });
-      const paymentDoc = doc4(paymentsRef);
+      tx.update(invoiceDoc, { paid_amount: newPaid, status: newStatus, updatedAt: serverTimestamp6() });
+      const paymentDoc = doc5(paymentsRef);
       tx.set(paymentDoc, {
         invoice_id: snap.id,
         invoice_title: data.title,
@@ -2034,7 +2151,7 @@ router4.post(
         receipt_no: `R-${Date.now().toString(36).toUpperCase()}`,
         recorded_by: req.user.id,
         recorded_by_name: req.user.name,
-        createdAt: serverTimestamp5()
+        createdAt: serverTimestamp6()
       });
       return { paymentId: paymentDoc.id, newPaid, newStatus, data };
     });
@@ -2044,7 +2161,7 @@ router4.post(
       message: `\u062A\u0645 \u0627\u0633\u062A\u0644\u0627\u0645 ${amount.toLocaleString("en-US")} ${CURRENCY} \u0639\u0644\u0649 "${result.data.title}". ${result.newStatus === "paid" ? "\u062A\u0645 \u062A\u0633\u062F\u064A\u062F \u0627\u0644\u0645\u0628\u0644\u063A \u0628\u0627\u0644\u0643\u0627\u0645\u0644." : `\u0627\u0644\u0645\u062A\u0628\u0642\u064A: ${remainingAmount({ ...result.data, paid_amount: result.newPaid }).toLocaleString("en-US")} ${CURRENCY}`}`,
       type: "payment",
       isRead: false,
-      createdAt: serverTimestamp5()
+      createdAt: serverTimestamp6()
     });
     invalidate("finance");
     audit(req, {
@@ -2062,7 +2179,7 @@ router4.get(
   requireStaff,
   wrap(async (req, res) => {
     const rows = await fetchAll(
-      query6(paymentsRef, where6("invoice_id", "==", req.params.id))
+      query7(paymentsRef, where7("invoice_id", "==", req.params.id))
     );
     rows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
     res.json(rows);
@@ -2072,12 +2189,12 @@ router4.delete(
   "/admin/payments/:id",
   requireAdmin,
   wrap(async (req, res) => {
-    const paymentDoc = doc4(db, "payments", req.params.id);
+    const paymentDoc = doc5(db, "payments", req.params.id);
     const summary = await runTransaction2(db, async (tx) => {
       const snap = await tx.get(paymentDoc);
       if (!snap.exists()) throw notFound("\u0633\u0646\u062F \u0627\u0644\u0642\u0628\u0636 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
       const payment = snap.data();
-      const invoiceDoc = doc4(db, "invoices", payment.invoice_id);
+      const invoiceDoc = doc5(db, "invoices", payment.invoice_id);
       const invoiceSnap = await tx.get(invoiceDoc);
       if (invoiceSnap.exists()) {
         const invoice = invoiceSnap.data();
@@ -2085,7 +2202,7 @@ router4.delete(
         tx.update(invoiceDoc, {
           paid_amount: newPaid,
           status: deriveStatus({ ...invoice, paid_amount: newPaid }),
-          updatedAt: serverTimestamp5()
+          updatedAt: serverTimestamp6()
         });
       }
       tx.delete(paymentDoc);
@@ -2121,8 +2238,8 @@ router4.get(
   wrap(async (req, res) => {
     const studentId = req.params.studentId;
     const [invoices, payments] = await Promise.all([
-      fetchAll(query6(invoicesRef, where6("student_id", "==", studentId))),
-      fetchAll(query6(paymentsRef, where6("student_id", "==", studentId)))
+      fetchAll(query7(invoicesRef, where7("student_id", "==", studentId))),
+      fetchAll(query7(paymentsRef, where7("student_id", "==", studentId)))
     ]);
     const active = invoices.filter((i) => i.status !== "cancelled");
     const totalBilled = active.reduce((sum, i) => sum + netAmount(i), 0);
@@ -2145,6 +2262,19 @@ router4.get(
       invoices: invoices.map((i) => ({ ...i, net_amount: netAmount(i), remaining: remainingAmount(i) })),
       payments
     });
+  })
+);
+router4.post(
+  "/admin/finance/reminders",
+  requireStaff,
+  wrap(async (req, res) => {
+    const result = await sendDueReminders();
+    audit(req, {
+      action: "reminder",
+      entity: "invoice",
+      summary: `\u0625\u0631\u0633\u0627\u0644 ${result.sent} \u062A\u0630\u0643\u064A\u0631 \u0628\u0645\u0648\u0627\u0639\u064A\u062F \u0627\u0644\u0623\u0642\u0633\u0627\u0637`
+    });
+    res.json({ success: true, ...result });
   })
 );
 router4.get(
@@ -2245,7 +2375,7 @@ var payments_routes_default = router4;
 
 // backend/routes/classes.routes.ts
 var router5 = Router5();
-var BATCH_LIMIT3 = 450;
+var BATCH_LIMIT4 = 450;
 var CLASSES_TTL_MS = 6e4;
 router5.get(
   "/classes",
@@ -2270,7 +2400,7 @@ router5.post(
       teacher_ids: teachers.map((t) => String(t.id)),
       teacher_names: teachers.map((t) => String(t.name || "\u0645\u0639\u0644\u0645")),
       capacity: num(req.body?.capacity, "\u0627\u0644\u0633\u0639\u0629", { min: 0, max: 500, optional: true }),
-      createdAt: serverTimestamp6()
+      createdAt: serverTimestamp7()
     });
     invalidate("classes");
     audit(req, { action: "create", entity: "class", entityId: created.id, summary: `\u0625\u0636\u0627\u0641\u0629 \u0635\u0641 ${name}` });
@@ -2281,7 +2411,7 @@ router5.put(
   "/admin/classes/:id",
   requireAdmin,
   wrap(async (req, res) => {
-    const target = doc5(db, "classes", req.params.id);
+    const target = doc6(db, "classes", req.params.id);
     const snap = await getDoc5(target);
     if (!snap.exists()) throw notFound("\u0627\u0644\u0635\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const patch = {};
@@ -2295,7 +2425,7 @@ router5.put(
       patch.teacher_names = teachers.map((t) => String(t.name || "\u0645\u0639\u0644\u0645"));
     }
     if (Object.keys(patch).length === 0) throw badRequest("\u0644\u0627 \u062A\u0648\u062C\u062F \u0628\u064A\u0627\u0646\u0627\u062A \u0644\u0644\u062A\u062D\u062F\u064A\u062B");
-    patch.updatedAt = serverTimestamp6();
+    patch.updatedAt = serverTimestamp7();
     await updateDoc5(target, patch);
     invalidate("classes");
     audit(req, {
@@ -2313,19 +2443,19 @@ router5.delete(
   requireAdmin,
   wrap(async (req, res) => {
     const classId = req.params.id;
-    const snap = await getDoc5(doc5(db, "classes", classId));
+    const snap = await getDoc5(doc6(db, "classes", classId));
     if (!snap.exists()) throw notFound("\u0627\u0644\u0635\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const [enrollments, schedules] = await Promise.all([
-      getDocs6(query7(enrollmentsRef, where7("class_id", "==", classId))),
-      getDocs6(query7(schedulesRef, where7("class_id", "==", classId)))
+      getDocs7(query8(enrollmentsRef, where8("class_id", "==", classId))),
+      getDocs7(query8(schedulesRef, where8("class_id", "==", classId)))
     ]);
     const refs = [...enrollments.docs, ...schedules.docs].map((d) => d.ref);
-    for (const group of chunk(refs, BATCH_LIMIT3)) {
-      const batch = writeBatch3(db);
+    for (const group of chunk(refs, BATCH_LIMIT4)) {
+      const batch = writeBatch4(db);
       group.forEach((ref) => batch.delete(ref));
       await batch.commit();
     }
-    await deleteDoc2(doc5(db, "classes", classId));
+    await deleteDoc2(doc6(db, "classes", classId));
     invalidate("classes");
     audit(req, {
       action: "delete",
@@ -2342,16 +2472,16 @@ router5.get(
   wrap(async (req, res) => {
     const classId = req.params.classId;
     const enrollments = await fetchAll(
-      query7(enrollmentsRef, where7("class_id", "==", classId))
+      query8(enrollmentsRef, where8("class_id", "==", classId))
     );
     const studentIds = [...new Set(enrollments.map((e) => e.student_id))];
     if (studentIds.length === 0) return res.json([]);
     const [students, absences, invoices] = await Promise.all([
       getDocsByIds(usersRef, studentIds),
       fetchAll(
-        query7(attendanceRef, where7("class_id", "==", classId), where7("status", "==", "absent"))
+        query8(attendanceRef, where8("class_id", "==", classId), where8("status", "==", "absent"))
       ),
-      fetchAll(query7(invoicesRef, where7("class_id", "==", classId)))
+      fetchAll(query8(invoicesRef, where8("class_id", "==", classId)))
     ]);
     const absenceCount = /* @__PURE__ */ new Map();
     for (const record of absences) {
@@ -2385,8 +2515,8 @@ router5.get(
       throw badRequest("\u0644\u0627 \u064A\u0645\u0643\u0646\u0643 \u0639\u0631\u0636 \u0635\u0641\u0648\u0641 \u0645\u0639\u0644\u0645 \u0622\u062E\u0631");
     }
     const [byArray, bySingle] = await Promise.all([
-      fetchAll(query7(classesRef, where7("teacher_ids", "array-contains", teacherId))),
-      fetchAll(query7(classesRef, where7("teacher_id", "==", teacherId)))
+      fetchAll(query8(classesRef, where8("teacher_ids", "array-contains", teacherId))),
+      fetchAll(query8(classesRef, where8("teacher_id", "==", teacherId)))
     ]);
     const merged = /* @__PURE__ */ new Map();
     [...byArray, ...bySingle].forEach((c) => merged.set(c.id, c));
@@ -2402,7 +2532,7 @@ router5.get(
       throw badRequest("\u0644\u0627 \u064A\u0645\u0643\u0646\u0643 \u0639\u0631\u0636 \u0635\u0641\u0648\u0641 \u0637\u0627\u0644\u0628 \u0622\u062E\u0631");
     }
     const enrollments = await fetchAll(
-      query7(enrollmentsRef, where7("student_id", "==", studentId))
+      query8(enrollmentsRef, where8("student_id", "==", studentId))
     );
     const classIds = [...new Set(enrollments.map((e) => e.class_id))];
     if (classIds.length === 0) return res.json([]);
@@ -2417,15 +2547,15 @@ router5.post(
     const studentId = str(req.body?.student_id, "\u0627\u0644\u0637\u0627\u0644\u0628", { max: 64 });
     const classId = str(req.body?.class_id, "\u0627\u0644\u0635\u0641", { max: 64 });
     const [studentSnap, classSnap] = await Promise.all([
-      getDoc5(doc5(db, "users", studentId)),
-      getDoc5(doc5(db, "classes", classId))
+      getDoc5(doc6(db, "users", studentId)),
+      getDoc5(doc6(db, "classes", classId))
     ]);
     if (!studentSnap.exists()) throw notFound("\u0627\u0644\u0637\u0627\u0644\u0628 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     if (!classSnap.exists()) throw notFound("\u0627\u0644\u0635\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
-    const existing = await getDocs6(query7(enrollmentsRef, where7("student_id", "==", studentId)));
-    const batch = writeBatch3(db);
+    const existing = await getDocs7(query8(enrollmentsRef, where8("student_id", "==", studentId)));
+    const batch = writeBatch4(db);
     existing.forEach((d) => batch.delete(d.ref));
-    batch.set(doc5(enrollmentsRef), { student_id: studentId, class_id: classId, createdAt: serverTimestamp6() });
+    batch.set(doc6(enrollmentsRef), { student_id: studentId, class_id: classId, createdAt: serverTimestamp7() });
     await batch.commit();
     invalidate("students");
     audit(req, {
@@ -2441,9 +2571,9 @@ var classes_routes_default = router5;
 
 // backend/routes/attendance.routes.ts
 import { Router as Router6 } from "express";
-import { doc as doc6, getDoc as getDoc6, getDocs as getDocs7, query as query8, serverTimestamp as serverTimestamp7, where as where8, writeBatch as writeBatch4 } from "firebase/firestore";
+import { doc as doc7, getDoc as getDoc6, getDocs as getDocs8, query as query9, serverTimestamp as serverTimestamp8, where as where9, writeBatch as writeBatch5 } from "firebase/firestore";
 var router6 = Router6();
-var BATCH_LIMIT4 = 450;
+var BATCH_LIMIT5 = 450;
 var STATUSES2 = ["present", "absent", "late", "excused"];
 var STATUS_LABEL = {
   present: "\u062D\u0627\u0636\u0631",
@@ -2464,7 +2594,7 @@ router6.post(
     if (date > (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)) {
       throw badRequest("\u0644\u0627 \u064A\u0645\u0643\u0646 \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062D\u0636\u0648\u0631 \u0644\u062A\u0627\u0631\u064A\u062E \u0645\u0633\u062A\u0642\u0628\u0644\u064A");
     }
-    const classSnap = await getDoc6(doc6(db, "classes", classId));
+    const classSnap = await getDoc6(doc7(db, "classes", classId));
     if (!classSnap.exists()) throw notFound("\u0627\u0644\u0635\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const className = classSnap.data().name;
     const entries = rows.map((row) => ({
@@ -2472,19 +2602,19 @@ router6.post(
       status: oneOf(row?.status, "\u062D\u0627\u0644\u0629 \u0627\u0644\u062D\u0636\u0648\u0631", STATUSES2),
       note: str(row?.note, "\u0645\u0644\u0627\u062D\u0638\u0629", { max: 200, optional: true })
     }));
-    const existing = await getDocs7(
-      query8(attendanceRef, where8("class_id", "==", classId), where8("date", "==", date))
+    const existing = await getDocs8(
+      query9(attendanceRef, where9("class_id", "==", classId), where9("date", "==", date))
     );
     const staleRefs = existing.docs.map((d) => d.ref);
-    for (const group of chunk(staleRefs, BATCH_LIMIT4)) {
-      const batch = writeBatch4(db);
+    for (const group of chunk(staleRefs, BATCH_LIMIT5)) {
+      const batch = writeBatch5(db);
       group.forEach((ref) => batch.delete(ref));
       await batch.commit();
     }
-    for (const group of chunk(entries, Math.floor(BATCH_LIMIT4 / 2))) {
-      const batch = writeBatch4(db);
+    for (const group of chunk(entries, Math.floor(BATCH_LIMIT5 / 2))) {
+      const batch = writeBatch5(db);
       for (const entry of group) {
-        batch.set(doc6(attendanceRef), {
+        batch.set(doc7(attendanceRef), {
           student_id: entry.studentId,
           class_id: classId,
           class_name: className,
@@ -2493,16 +2623,16 @@ router6.post(
           note: entry.note,
           recorded_by: req.user.id,
           recorded_by_name: req.user.name,
-          createdAt: serverTimestamp7()
+          createdAt: serverTimestamp8()
         });
         if (entry.status === "absent" || entry.status === "late") {
-          batch.set(doc6(notificationsRef), {
+          batch.set(doc7(notificationsRef), {
             user_id: entry.studentId,
             title: entry.status === "absent" ? "\u062A\u0646\u0628\u064A\u0647 \u063A\u064A\u0627\u0628" : "\u062A\u0646\u0628\u064A\u0647 \u062A\u0623\u062E\u0631",
             message: `\u062A\u0645 \u062A\u0633\u062C\u064A\u0644\u0643 ${STATUS_LABEL[entry.status]} \u0641\u064A ${className} \u0628\u062A\u0627\u0631\u064A\u062E ${date}`,
             type: "absence",
             isRead: false,
-            createdAt: serverTimestamp7()
+            createdAt: serverTimestamp8()
           });
         }
       }
@@ -2525,7 +2655,7 @@ router6.get(
   wrap(async (req, res) => {
     const date = isoDate(req.query.date, "\u0627\u0644\u062A\u0627\u0631\u064A\u062E");
     const rows = await fetchAll(
-      query8(attendanceRef, where8("class_id", "==", req.params.classId), where8("date", "==", date))
+      query9(attendanceRef, where9("class_id", "==", req.params.classId), where9("date", "==", date))
     );
     res.json(rows);
   })
@@ -2536,7 +2666,7 @@ router6.get(
   requireSelfOrStaff("studentId"),
   wrap(async (req, res) => {
     const rows = await fetchAll(
-      query8(attendanceRef, where8("student_id", "==", req.params.studentId))
+      query9(attendanceRef, where9("student_id", "==", req.params.studentId))
     );
     rows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
     res.json(rows);
@@ -2549,7 +2679,7 @@ router6.get(
   wrap(async (req, res) => {
     const date = req.query.date ? isoDate(req.query.date, "\u0627\u0644\u062A\u0627\u0631\u064A\u062E") : (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const records = await fetchAll(
-      query8(attendanceRef, where8("date", "==", date), where8("status", "==", "absent"))
+      query9(attendanceRef, where9("date", "==", date), where9("status", "==", "absent"))
     );
     if (records.length === 0) return res.json([]);
     const [students, classes] = await Promise.all([
@@ -2581,13 +2711,13 @@ import { Router as Router7 } from "express";
 import {
   addDoc as addDoc6,
   deleteDoc as deleteDoc3,
-  doc as doc7,
+  doc as doc8,
   getDoc as getDoc7,
   orderBy as orderBy5,
-  query as query9,
-  serverTimestamp as serverTimestamp8,
+  query as query10,
+  serverTimestamp as serverTimestamp9,
   updateDoc as updateDoc6,
-  where as where9
+  where as where10
 } from "firebase/firestore";
 var router7 = Router7();
 var CATEGORIES2 = ["\u064A\u0648\u0645\u064A", "\u0634\u0647\u0631\u064A", "\u0648\u0627\u062C\u0628", "\u0645\u0634\u0627\u0631\u0643\u0629", "\u0646\u0635\u0641 \u0627\u0644\u0641\u0635\u0644", "\u0646\u0647\u0627\u0626\u064A", "\u0627\u0645\u062A\u062D\u0627\u0646"];
@@ -2597,7 +2727,7 @@ async function assertMaySetGrade(req, subject) {
   const role = req.user.role;
   if (role === "admin") return;
   if (role !== "teacher") throw forbidden("\u0631\u0635\u062F \u0627\u0644\u062F\u0631\u062C\u0627\u062A \u0645\u0642\u062A\u0635\u0631 \u0639\u0644\u0649 \u0627\u0644\u0645\u062F\u064A\u0631 \u0648\u0627\u0644\u0645\u0639\u0644\u0645\u064A\u0646");
-  const teacherSnap = await getDoc7(doc7(db, "users", req.user.id));
+  const teacherSnap = await getDoc7(doc8(db, "users", req.user.id));
   const subjects = teacherSnap.exists() ? teacherSnap.data().subjects || [] : [];
   if (!subjects.includes(subject)) {
     throw forbidden(`\u063A\u064A\u0631 \u0645\u0635\u0631\u062D \u0644\u0643 \u0628\u0625\u062F\u0627\u0631\u0629 \u062F\u0631\u062C\u0627\u062A \u0645\u0627\u062F\u0629 "${subject}"`);
@@ -2609,8 +2739,8 @@ router7.get(
   wrap(async (req, res) => {
     const pageSize = num(req.query.limit, "\u0627\u0644\u062D\u062F", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE4 });
     const cursor = req.query.after ? String(req.query.after) : null;
-    const base = query9(gradesRef, where9("class_id", "==", req.params.classId));
-    const q = query9(base, orderBy5("createdAt", "desc"));
+    const base = query10(gradesRef, where10("class_id", "==", req.params.classId));
+    const q = query10(base, orderBy5("createdAt", "desc"));
     const { data, nextCursor } = await fetchPage(q, pageSize, cursor, gradesRef, {
       base,
       sortField: "createdAt",
@@ -2626,7 +2756,7 @@ router7.get(
   requireSelfOrStaff("studentId"),
   wrap(async (req, res) => {
     const rows = await fetchAll(
-      query9(gradesRef, where9("student_id", "==", req.params.studentId))
+      query10(gradesRef, where10("student_id", "==", req.params.studentId))
     );
     rows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
     res.json(rows);
@@ -2643,7 +2773,7 @@ router7.post(
     const total = num(b.total, "\u0627\u0644\u062F\u0631\u062C\u0629 \u0627\u0644\u0643\u0644\u064A\u0629", { min: 1, max: 1e4 });
     const score = num(b.score, "\u0627\u0644\u062F\u0631\u062C\u0629", { min: 0, max: total });
     const studentId = str(b.student_id, "\u0627\u0644\u0637\u0627\u0644\u0628", { max: 64 });
-    const studentSnap = await getDoc7(doc7(db, "users", studentId));
+    const studentSnap = await getDoc7(doc8(db, "users", studentId));
     if (!studentSnap.exists()) throw notFound("\u0627\u0644\u0637\u0627\u0644\u0628 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const created = await addDoc6(gradesRef, {
       student_id: studentId,
@@ -2658,7 +2788,7 @@ router7.post(
       semester: oneOf(b.semester, "\u0627\u0644\u0641\u0635\u0644 \u0627\u0644\u062F\u0631\u0627\u0633\u064A", SEMESTERS, "\u0627\u0644\u0641\u0635\u0644 \u0627\u0644\u0623\u0648\u0644"),
       recorded_by: req.user.id,
       recorded_by_name: req.user.name,
-      createdAt: serverTimestamp8()
+      createdAt: serverTimestamp9()
     });
     await addDoc6(notificationsRef, {
       user_id: studentId,
@@ -2666,7 +2796,7 @@ router7.post(
       message: `\u062A\u0645 \u0631\u0635\u062F \u062F\u0631\u062C\u0629 ${score}/${total} \u0641\u064A \u0645\u0627\u062F\u0629 ${subject}`,
       type: "grade",
       isRead: false,
-      createdAt: serverTimestamp8()
+      createdAt: serverTimestamp9()
     });
     audit(req, {
       action: "create",
@@ -2682,7 +2812,7 @@ router7.put(
   requireAuth,
   requireRole("teacher", "admin"),
   wrap(async (req, res) => {
-    const target = doc7(db, "grades", req.params.id);
+    const target = doc8(db, "grades", req.params.id);
     const snap = await getDoc7(target);
     if (!snap.exists()) throw notFound("\u0627\u0644\u062F\u0631\u062C\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629");
     const current = snap.data();
@@ -2701,7 +2831,7 @@ router7.put(
       category: b.category !== void 0 ? oneOf(b.category, "\u0646\u0648\u0639 \u0627\u0644\u062A\u0642\u064A\u064A\u0645", CATEGORIES2) : current.category,
       semester: b.semester !== void 0 ? oneOf(b.semester, "\u0627\u0644\u0641\u0635\u0644 \u0627\u0644\u062F\u0631\u0627\u0633\u064A", SEMESTERS) : current.semester,
       updated_by: req.user.id,
-      updatedAt: serverTimestamp8()
+      updatedAt: serverTimestamp9()
     });
     audit(req, {
       action: "update",
@@ -2717,7 +2847,7 @@ router7.delete(
   requireAuth,
   requireRole("teacher", "admin"),
   wrap(async (req, res) => {
-    const target = doc7(db, "grades", req.params.id);
+    const target = doc8(db, "grades", req.params.id);
     const snap = await getDoc7(target);
     if (!snap.exists()) throw notFound("\u0627\u0644\u062F\u0631\u062C\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629");
     const current = snap.data();
@@ -2737,18 +2867,18 @@ var grades_routes_default = router7;
 // backend/routes/notifications.routes.ts
 import { Router as Router8 } from "express";
 import {
-  doc as doc8,
+  doc as doc9,
   getDoc as getDoc8,
-  getDocs as getDocs9,
+  getDocs as getDocs10,
   limit as fsLimit4,
   orderBy as orderBy6,
-  query as query10,
+  query as query11,
   updateDoc as updateDoc7,
-  where as where10,
-  writeBatch as writeBatch5
+  where as where11,
+  writeBatch as writeBatch6
 } from "firebase/firestore";
 var router8 = Router8();
-var BATCH_LIMIT5 = 450;
+var BATCH_LIMIT6 = 450;
 router8.get(
   "/notifications/:userId",
   requireAuth,
@@ -2756,15 +2886,15 @@ router8.get(
     if (req.user.id !== req.params.userId) throw forbidden("\u0644\u0627 \u064A\u0645\u0643\u0646\u0643 \u0639\u0631\u0636 \u0625\u0634\u0639\u0627\u0631\u0627\u062A \u0645\u0633\u062A\u062E\u062F\u0645 \u0622\u062E\u0631");
     const max = num(req.query.limit, "\u0627\u0644\u062D\u062F", { min: 1, max: 100, optional: true, default: 20 });
     const rows = await fetchIndexed(
-      query10(
+      query11(
         notificationsRef,
-        where10("user_id", "==", req.params.userId),
+        where11("user_id", "==", req.params.userId),
         orderBy6("createdAt", "desc"),
         fsLimit4(max)
       ),
       async () => {
         const all = await fetchAll(
-          query10(notificationsRef, where10("user_id", "==", req.params.userId))
+          query11(notificationsRef, where11("user_id", "==", req.params.userId))
         );
         all.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
         return all.slice(0, max);
@@ -2778,7 +2908,7 @@ router8.post(
   "/notifications/read/:id",
   requireAuth,
   wrap(async (req, res) => {
-    const target = doc8(db, "notifications", req.params.id);
+    const target = doc9(db, "notifications", req.params.id);
     const snap = await getDoc8(target);
     if (!snap.exists()) throw notFound("\u0627\u0644\u0625\u0634\u0639\u0627\u0631 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     if (snap.data().user_id !== req.user.id) throw forbidden("\u0644\u0627 \u064A\u0645\u0643\u0646\u0643 \u062A\u0639\u062F\u064A\u0644 \u0625\u0634\u0639\u0627\u0631 \u0645\u0633\u062A\u062E\u062F\u0645 \u0622\u062E\u0631");
@@ -2790,12 +2920,12 @@ router8.post(
   "/notifications/read-all",
   requireAuth,
   wrap(async (req, res) => {
-    const unread = await getDocs9(
-      query10(notificationsRef, where10("user_id", "==", req.user.id), where10("isRead", "==", false))
+    const unread = await getDocs10(
+      query11(notificationsRef, where11("user_id", "==", req.user.id), where11("isRead", "==", false))
     );
     const refs = unread.docs.map((d) => d.ref);
-    for (const group of chunk(refs, BATCH_LIMIT5)) {
-      const batch = writeBatch5(db);
+    for (const group of chunk(refs, BATCH_LIMIT6)) {
+      const batch = writeBatch6(db);
       group.forEach((ref) => batch.update(ref, { isRead: true }));
       await batch.commit();
     }
@@ -2806,7 +2936,7 @@ var notifications_routes_default = router8;
 
 // backend/routes/catalog.routes.ts
 import { Router as Router9 } from "express";
-import { addDoc as addDoc7, deleteDoc as deleteDoc4, doc as doc9, getDoc as getDoc9, query as query11, serverTimestamp as serverTimestamp9, where as where11 } from "firebase/firestore";
+import { addDoc as addDoc7, deleteDoc as deleteDoc4, doc as doc10, getDoc as getDoc9, query as query12, serverTimestamp as serverTimestamp10, where as where12 } from "firebase/firestore";
 var router9 = Router9();
 var SUBJECT_COLORS = [
   "bg-blue-500",
@@ -2837,7 +2967,7 @@ router9.post(
     const created = await addDoc7(subjectsRef, {
       name,
       color: SUBJECT_COLORS[existing.length % SUBJECT_COLORS.length],
-      createdAt: serverTimestamp9()
+      createdAt: serverTimestamp10()
     });
     invalidate("subjects");
     audit(req, { action: "create", entity: "subject", entityId: created.id, summary: `\u0625\u0636\u0627\u0641\u0629 \u0645\u0627\u062F\u0629 ${name}` });
@@ -2848,9 +2978,9 @@ router9.delete(
   "/admin/subjects/:id",
   requireStaff,
   wrap(async (req, res) => {
-    const snap = await getDoc9(doc9(db, "subjects", req.params.id));
+    const snap = await getDoc9(doc10(db, "subjects", req.params.id));
     if (!snap.exists()) throw notFound("\u0627\u0644\u0645\u0627\u062F\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629");
-    await deleteDoc4(doc9(db, "subjects", req.params.id));
+    await deleteDoc4(doc10(db, "subjects", req.params.id));
     invalidate("subjects");
     audit(req, {
       action: "delete",
@@ -2866,7 +2996,7 @@ router9.get(
   requireAuth,
   wrap(async (req, res) => {
     const rows = await fetchAll(
-      query11(schedulesRef, where11("class_id", "==", req.params.classId))
+      query12(schedulesRef, where12("class_id", "==", req.params.classId))
     );
     const order = new Map(DAYS.map((d, i) => [d, i]));
     rows.sort((a, b) => {
@@ -2884,10 +3014,10 @@ router9.post(
     const day = oneOf(req.body?.day, "\u0627\u0644\u064A\u0648\u0645", DAYS);
     const time = str(req.body?.time, "\u0627\u0644\u0648\u0642\u062A", { max: 40 });
     const subject = str(req.body?.subject, "\u0627\u0644\u0645\u0627\u062F\u0629", { max: 80 });
-    const classSnap = await getDoc9(doc9(db, "classes", classId));
+    const classSnap = await getDoc9(doc10(db, "classes", classId));
     if (!classSnap.exists()) throw notFound("\u0627\u0644\u0635\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const sameSlot = await fetchAll(
-      query11(schedulesRef, where11("class_id", "==", classId), where11("day", "==", day), where11("time", "==", time))
+      query12(schedulesRef, where12("class_id", "==", classId), where12("day", "==", day), where12("time", "==", time))
     );
     if (sameSlot.length > 0) throw badRequest("\u064A\u0648\u062C\u062F \u062F\u0631\u0633 \u0645\u0633\u062C\u0644 \u0628\u0627\u0644\u0641\u0639\u0644 \u0641\u064A \u0647\u0630\u0627 \u0627\u0644\u064A\u0648\u0645 \u0648\u0627\u0644\u0648\u0642\u062A \u0644\u0647\u0630\u0627 \u0627\u0644\u0635\u0641");
     const created = await addDoc7(schedulesRef, {
@@ -2898,7 +3028,7 @@ router9.post(
       subject,
       teacher: str(req.body?.teacher, "\u0627\u0644\u0645\u0639\u0644\u0645", { max: 120, optional: true }),
       room: str(req.body?.room, "\u0627\u0644\u0642\u0627\u0639\u0629", { max: 60, optional: true }),
-      createdAt: serverTimestamp9()
+      createdAt: serverTimestamp10()
     });
     audit(req, {
       action: "create",
@@ -2913,9 +3043,9 @@ router9.delete(
   "/admin/schedules/:id",
   requireStaff,
   wrap(async (req, res) => {
-    const snap = await getDoc9(doc9(db, "schedules", req.params.id));
+    const snap = await getDoc9(doc10(db, "schedules", req.params.id));
     if (!snap.exists()) throw notFound("\u0627\u0644\u062D\u0635\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629");
-    await deleteDoc4(doc9(db, "schedules", req.params.id));
+    await deleteDoc4(doc10(db, "schedules", req.params.id));
     audit(req, {
       action: "delete",
       entity: "schedule",
@@ -2929,7 +3059,7 @@ var catalog_routes_default = router9;
 
 // backend/routes/behavior.routes.ts
 import { Router as Router10 } from "express";
-import { addDoc as addDoc8, deleteDoc as deleteDoc5, doc as doc10, getDoc as getDoc10, orderBy as orderBy7, query as query12, serverTimestamp as serverTimestamp10, where as where12 } from "firebase/firestore";
+import { addDoc as addDoc8, deleteDoc as deleteDoc5, doc as doc11, getDoc as getDoc10, orderBy as orderBy7, query as query13, serverTimestamp as serverTimestamp11, where as where13 } from "firebase/firestore";
 var router10 = Router10();
 var TYPES = ["positive", "negative"];
 var CATEGORIES3 = [
@@ -2956,7 +3086,7 @@ router10.post(
     const points = num(req.body?.points, "\u0627\u0644\u0646\u0642\u0627\u0637", { min: 0, max: 100, optional: true, default: 5 });
     const date = isoDate(req.body?.date, "\u0627\u0644\u062A\u0627\u0631\u064A\u062E", { optional: true }) || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const notifyStudent = boolean(req.body?.notify_student, true);
-    const studentSnap = await getDoc10(doc10(db, "users", studentId));
+    const studentSnap = await getDoc10(doc11(db, "users", studentId));
     if (!studentSnap.exists()) throw notFound("\u0627\u0644\u0637\u0627\u0644\u0628 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const student = studentSnap.data();
     const created = await addDoc8(behaviorRef, {
@@ -2973,7 +3103,7 @@ router10.post(
       guardian_phone: student.guardian_phone || "",
       created_by: req.user.id,
       created_by_name: req.user.name,
-      createdAt: serverTimestamp10()
+      createdAt: serverTimestamp11()
     });
     if (notifyStudent) {
       await addDoc8(notificationsRef, {
@@ -2982,7 +3112,7 @@ router10.post(
         message: `${title}${description ? ` \u2014 ${description}` : ""}`,
         type: "behavior",
         isRead: false,
-        createdAt: serverTimestamp10()
+        createdAt: serverTimestamp11()
       });
     }
     audit(req, {
@@ -3000,7 +3130,7 @@ router10.get(
   requireSelfOrStaff("studentId"),
   wrap(async (req, res) => {
     const rows = await fetchAll(
-      query12(behaviorRef, where12("student_id", "==", req.params.studentId))
+      query13(behaviorRef, where13("student_id", "==", req.params.studentId))
     );
     rows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
     const score = rows.reduce((sum, r) => sum + Number(r.points || 0), 0);
@@ -3023,8 +3153,8 @@ router10.get(
   wrap(async (req, res) => {
     const pageSize = num(req.query.limit, "\u0627\u0644\u062D\u062F", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE5 });
     const cursor = req.query.after ? String(req.query.after) : null;
-    const base = query12(behaviorRef, where12("class_id", "==", req.params.classId));
-    const q = query12(base, orderBy7("date", "desc"));
+    const base = query13(behaviorRef, where13("class_id", "==", req.params.classId));
+    const q = query13(base, orderBy7("date", "desc"));
     const { data, nextCursor } = await fetchPage(q, pageSize, cursor, behaviorRef, {
       base,
       sortField: "date",
@@ -3038,9 +3168,9 @@ router10.delete(
   "/behavior/:id",
   requireAdmin,
   wrap(async (req, res) => {
-    const snap = await getDoc10(doc10(db, "behavior_notes", req.params.id));
+    const snap = await getDoc10(doc11(db, "behavior_notes", req.params.id));
     if (!snap.exists()) throw notFound("\u0627\u0644\u0645\u0644\u0627\u062D\u0638\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629");
-    await deleteDoc5(doc10(db, "behavior_notes", req.params.id));
+    await deleteDoc5(doc11(db, "behavior_notes", req.params.id));
     audit(req, {
       action: "delete",
       entity: "behavior_note",
@@ -3052,10 +3182,141 @@ router10.delete(
 );
 var behavior_routes_default = router10;
 
-// backend/routes/reports.routes.ts
+// backend/routes/homework.routes.ts
 import { Router as Router11 } from "express";
-import { doc as doc11, getDoc as getDoc11, orderBy as orderBy8, query as query13, where as where13 } from "firebase/firestore";
+import {
+  addDoc as addDoc9,
+  deleteDoc as deleteDoc6,
+  doc as doc12,
+  getDoc as getDoc11,
+  orderBy as orderBy8,
+  query as query14,
+  serverTimestamp as serverTimestamp12,
+  where as where14,
+  writeBatch as writeBatch7
+} from "firebase/firestore";
 var router11 = Router11();
+var BATCH_LIMIT7 = 450;
+var DEFAULT_PAGE_SIZE6 = 20;
+router11.post(
+  "/homework",
+  requireAuth,
+  requireRole("teacher", "admin", "assistant_admin"),
+  wrap(async (req, res) => {
+    const classId = str(req.body?.class_id, "\u0627\u0644\u0635\u0641", { max: 64 });
+    const subject = str(req.body?.subject, "\u0627\u0644\u0645\u0627\u062F\u0629", { min: 2, max: 80 });
+    const title = str(req.body?.title, "\u0639\u0646\u0648\u0627\u0646 \u0627\u0644\u0648\u0627\u062C\u0628", { min: 2, max: 120 });
+    const description = str(req.body?.description, "\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0648\u0627\u062C\u0628", { max: 1500, optional: true });
+    const dueDate = isoDate(req.body?.due_date, "\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u062A\u0633\u0644\u064A\u0645", { optional: true }) || null;
+    const notifyStudents = boolean(req.body?.notify_students, true);
+    const classSnap = await getDoc11(doc12(db, "classes", classId));
+    if (!classSnap.exists()) throw notFound("\u0627\u0644\u0635\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
+    const className = classSnap.data().name;
+    const created = await addDoc9(homeworkRef, {
+      class_id: classId,
+      class_name: className,
+      subject,
+      title,
+      description,
+      due_date: dueDate,
+      created_by: req.user.id,
+      created_by_name: req.user.name,
+      createdAt: serverTimestamp12()
+    });
+    let notified = 0;
+    if (notifyStudents) {
+      const enrollments = await fetchAll(
+        query14(enrollmentsRef, where14("class_id", "==", classId))
+      );
+      const recipients = [...new Set(enrollments.map((e) => e.student_id))];
+      for (const group of chunk(recipients, BATCH_LIMIT7)) {
+        const batch = writeBatch7(db);
+        for (const studentId of group) {
+          batch.set(doc12(notificationsRef), {
+            user_id: studentId,
+            title: `\u0648\u0627\u062C\u0628 \u062C\u062F\u064A\u062F \u0641\u064A ${subject}`,
+            message: `${title}${dueDate ? ` \u2014 \u0627\u0644\u062A\u0633\u0644\u064A\u0645 ${dueDate}` : ""}`,
+            type: "homework",
+            isRead: false,
+            createdAt: serverTimestamp12()
+          });
+        }
+        await batch.commit();
+      }
+      notified = recipients.length;
+    }
+    audit(req, {
+      action: "create",
+      entity: "homework",
+      entityId: created.id,
+      summary: `\u0648\u0627\u062C\u0628 "${title}" \u0641\u064A ${subject} \u0644\u0635\u0641 ${className}`
+    });
+    res.status(201).json({ success: true, id: created.id, notified });
+  })
+);
+router11.get(
+  "/class/:classId/homework",
+  requireAuth,
+  wrap(async (req, res) => {
+    const pageSize = num(req.query.limit, "\u0627\u0644\u062D\u062F", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE6 });
+    const cursor = req.query.after ? String(req.query.after) : null;
+    const base = query14(homeworkRef, where14("class_id", "==", req.params.classId));
+    const q = query14(base, orderBy8("createdAt", "desc"));
+    const { data, nextCursor } = await fetchPage(q, pageSize, cursor, homeworkRef, {
+      base,
+      sortField: "createdAt",
+      direction: "desc",
+      label: "homework by class, newest first"
+    });
+    res.json({ data, nextCursor });
+  })
+);
+router11.get(
+  "/student/:studentId/homework",
+  requireAuth,
+  requireSelfOrStaff("studentId"),
+  wrap(async (req, res) => {
+    const enrollments = await fetchAll(
+      query14(enrollmentsRef, where14("student_id", "==", req.params.studentId))
+    );
+    const classIds = [...new Set(enrollments.map((e) => e.class_id).filter(Boolean))];
+    if (classIds.length === 0) return res.json([]);
+    const pages = await Promise.all(
+      classIds.map((classId) => fetchAll(query14(homeworkRef, where14("class_id", "==", classId))))
+    );
+    const rows = pages.flat();
+    rows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    res.json(rows);
+  })
+);
+router11.delete(
+  "/homework/:id",
+  requireAuth,
+  requireRole("teacher", "admin", "assistant_admin"),
+  wrap(async (req, res) => {
+    const target = doc12(db, "homework", req.params.id);
+    const snap = await getDoc11(target);
+    if (!snap.exists()) throw notFound("\u0627\u0644\u0648\u0627\u062C\u0628 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
+    const row = snap.data();
+    if (req.user.role === "teacher" && row.created_by !== req.user.id) {
+      throw forbidden("\u0644\u0627 \u064A\u0645\u0643\u0646\u0643 \u062D\u0630\u0641 \u0648\u0627\u062C\u0628 \u0623\u0636\u0627\u0641\u0647 \u0645\u0639\u0644\u0645 \u0622\u062E\u0631");
+    }
+    await deleteDoc6(target);
+    audit(req, {
+      action: "delete",
+      entity: "homework",
+      entityId: req.params.id,
+      summary: `\u062D\u0630\u0641 \u0648\u0627\u062C\u0628 "${row.title}" \u0645\u0646 ${row.class_name}`
+    });
+    res.json({ success: true });
+  })
+);
+var homework_routes_default = router11;
+
+// backend/routes/reports.routes.ts
+import { Router as Router12 } from "express";
+import { doc as doc13, getDoc as getDoc12, orderBy as orderBy9, query as query15, where as where15 } from "firebase/firestore";
+var router12 = Router12();
 function attendanceStats(records) {
   const total = records.length;
   const present = records.filter((r) => r.status === "present").length;
@@ -3098,25 +3359,25 @@ function gradeStats(grades) {
     })).sort((a, b) => b.percentage - a.percentage)
   };
 }
-router11.get(
+router12.get(
   "/reports/student/:studentId",
   requireAuth,
   requireSelfOrStaff("studentId"),
   wrap(async (req, res) => {
     const studentId = req.params.studentId;
-    const studentSnap = await getDoc11(doc11(db, "users", studentId));
+    const studentSnap = await getDoc12(doc13(db, "users", studentId));
     if (!studentSnap.exists()) throw notFound("\u0627\u0644\u0637\u0627\u0644\u0628 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const [grades, attendance, invoices, payments, behavior, enrollments] = await Promise.all([
-      fetchAll(query13(gradesRef, where13("student_id", "==", studentId))),
-      fetchAll(query13(attendanceRef, where13("student_id", "==", studentId))),
-      fetchAll(query13(invoicesRef, where13("student_id", "==", studentId))),
-      fetchAll(query13(paymentsRef, where13("student_id", "==", studentId))),
-      fetchAll(query13(behaviorRef, where13("student_id", "==", studentId))),
-      fetchAll(query13(enrollmentsRef, where13("student_id", "==", studentId)))
+      fetchAll(query15(gradesRef, where15("student_id", "==", studentId))),
+      fetchAll(query15(attendanceRef, where15("student_id", "==", studentId))),
+      fetchAll(query15(invoicesRef, where15("student_id", "==", studentId))),
+      fetchAll(query15(paymentsRef, where15("student_id", "==", studentId))),
+      fetchAll(query15(behaviorRef, where15("student_id", "==", studentId))),
+      fetchAll(query15(enrollmentsRef, where15("student_id", "==", studentId)))
     ]);
     let className = null;
     if (enrollments[0]?.class_id) {
-      const classSnap = await getDoc11(doc11(db, "classes", enrollments[0].class_id));
+      const classSnap = await getDoc12(doc13(db, "classes", enrollments[0].class_id));
       className = classSnap.exists() ? classSnap.data().name : null;
     }
     const activeInvoices = invoices.filter((i) => i.status !== "cancelled");
@@ -3148,23 +3409,23 @@ router11.get(
     });
   })
 );
-router11.get(
+router12.get(
   "/reports/class/:classId",
   requireAuth,
   requireRole("teacher", "admin", "assistant_admin"),
   wrap(async (req, res) => {
     const classId = req.params.classId;
-    const classSnap = await getDoc11(doc11(db, "classes", classId));
+    const classSnap = await getDoc12(doc13(db, "classes", classId));
     if (!classSnap.exists()) throw notFound("\u0627\u0644\u0635\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const enrollments = await fetchAll(
-      query13(enrollmentsRef, where13("class_id", "==", classId))
+      query15(enrollmentsRef, where15("class_id", "==", classId))
     );
     const studentIds = [...new Set(enrollments.map((e) => e.student_id))];
     const [students, grades, attendance, invoices] = await Promise.all([
       getDocsByIds(usersRef, studentIds),
-      fetchAll(query13(gradesRef, where13("class_id", "==", classId))),
-      fetchAll(query13(attendanceRef, where13("class_id", "==", classId))),
-      fetchAll(query13(invoicesRef, where13("class_id", "==", classId)))
+      fetchAll(query15(gradesRef, where15("class_id", "==", classId))),
+      fetchAll(query15(attendanceRef, where15("class_id", "==", classId))),
+      fetchAll(query15(invoicesRef, where15("class_id", "==", classId)))
     ]);
     const gradesByStudent = /* @__PURE__ */ new Map();
     grades.forEach((g) => {
@@ -3211,7 +3472,7 @@ router11.get(
     });
   })
 );
-router11.get(
+router12.get(
   "/reports/overview",
   requireAuth,
   requireRole("admin", "assistant_admin"),
@@ -3222,8 +3483,8 @@ router11.get(
         fetchAll(usersRef),
         fetchAll(classesRef),
         fetchAll(invoicesRef),
-        fetchAll(query13(attendanceRef, where13("date", "==", today))),
-        fetchAll(query13(registrationsRef, where13("status", "==", "pending")))
+        fetchAll(query15(attendanceRef, where15("date", "==", today))),
+        fetchAll(query15(registrationsRef, where15("status", "==", "pending")))
       ]);
       const activeInvoices = invoices.filter((i) => i.status !== "cancelled");
       const billed = activeInvoices.reduce((sum, i) => sum + netAmount(i), 0);
@@ -3247,7 +3508,7 @@ router11.get(
     res.json(payload);
   })
 );
-router11.get(
+router12.get(
   "/reports/attendance",
   requireAuth,
   requireRole("admin", "assistant_admin", "teacher"),
@@ -3256,20 +3517,20 @@ router11.get(
     const to = isoDate(req.query.to, "\u0625\u0644\u0649 \u062A\u0627\u0631\u064A\u062E");
     const classId = req.query.class_id ? String(req.query.class_id) : null;
     const inRange = classId ? await fetchIndexed(
-      query13(
+      query15(
         attendanceRef,
-        where13("class_id", "==", classId),
-        where13("date", ">=", from),
-        where13("date", "<=", to),
-        orderBy8("date")
+        where15("class_id", "==", classId),
+        where15("date", ">=", from),
+        where15("date", "<=", to),
+        orderBy9("date")
       ),
       async () => {
-        const all = await fetchAll(query13(attendanceRef, where13("class_id", "==", classId)));
+        const all = await fetchAll(query15(attendanceRef, where15("class_id", "==", classId)));
         return all.filter((r) => r.date >= from && r.date <= to);
       },
       "attendance by class over a date range"
     ) : await fetchAll(
-      query13(attendanceRef, where13("date", ">=", from), where13("date", "<=", to), orderBy8("date"))
+      query15(attendanceRef, where15("date", ">=", from), where15("date", "<=", to), orderBy9("date"))
     );
     const byStudent = /* @__PURE__ */ new Map();
     inRange.forEach((r) => {
@@ -3288,7 +3549,7 @@ router11.get(
     res.json({ from, to, class_id: classId, generated_at: (/* @__PURE__ */ new Date()).toISOString(), students: rows });
   })
 );
-var reports_routes_default = router11;
+var reports_routes_default = router12;
 
 // backend/app.ts
 var app = express();
@@ -3342,7 +3603,7 @@ app.post(
   rateLimit({ windowMs: 60 * 60 * 1e3, max: 5, keyPrefix: "setup" }),
   async (req, res, next) => {
     try {
-      const existingAdmin = await getDocs10(query14(usersRef, where14("role", "==", "admin"), fsLimit5(1)));
+      const existingAdmin = await getDocs11(query16(usersRef, where16("role", "==", "admin"), fsLimit5(1)));
       if (!existingAdmin.empty) {
         throw new HttpError(409, "\u062A\u0645 \u062A\u0647\u064A\u0626\u0629 \u0627\u0644\u0646\u0638\u0627\u0645 \u0645\u0633\u0628\u0642\u0627\u064B. \u0644\u0627 \u064A\u0645\u0643\u0646 \u0625\u0646\u0634\u0627\u0621 \u0645\u062F\u064A\u0631 \u062C\u062F\u064A\u062F \u0645\u0646 \u0647\u0646\u0627.");
       }
@@ -3355,16 +3616,16 @@ app.post(
       const password2 = String(req.body?.password || "");
       if (uid.length < 3) throw new HttpError(400, "\u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u062A\u0639\u0631\u064A\u0641\u064A \u0644\u0644\u0645\u062F\u064A\u0631 \u0645\u0637\u0644\u0648\u0628");
       if (password2.length < 8) throw new HttpError(400, "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u064A\u062C\u0628 \u0623\u0646 \u062A\u0643\u0648\u0646 8 \u0623\u062D\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644");
-      const created = await addDoc9(usersRef, {
+      const created = await addDoc10(usersRef, {
         name,
         username: uid,
         uid,
         password: hashPassword(password2),
         role: "admin",
         status: "active",
-        createdAt: serverTimestamp11()
+        createdAt: serverTimestamp13()
       });
-      const subjects = await getDocs10(query14(subjectsRef, fsLimit5(1)));
+      const subjects = await getDocs11(query16(subjectsRef, fsLimit5(1)));
       if (subjects.empty) {
         const defaults = [
           { name: "\u0627\u0644\u0631\u064A\u0627\u0636\u064A\u0627\u062A", color: "bg-blue-500" },
@@ -3375,7 +3636,7 @@ app.post(
           { name: "\u0627\u0644\u0643\u064A\u0645\u064A\u0627\u0621", color: "bg-purple-500" },
           { name: "\u0627\u0644\u0631\u064A\u0627\u0636\u0629", color: "bg-indigo-500" }
         ];
-        await Promise.all(defaults.map((s) => addDoc9(subjectsRef, { ...s, createdAt: serverTimestamp11() })));
+        await Promise.all(defaults.map((s) => addDoc10(subjectsRef, { ...s, createdAt: serverTimestamp13() })));
       }
       res.status(201).json({ success: true, id: created.id, uid });
     } catch (err) {
@@ -3393,6 +3654,7 @@ app.use("/api", notifications_routes_default);
 app.use("/api", catalog_routes_default);
 app.use("/api", payments_routes_default);
 app.use("/api", behavior_routes_default);
+app.use("/api", homework_routes_default);
 app.use("/api", reports_routes_default);
 app.use("/api", (req, res) => {
   res.status(404).json({ error: tr("\u0627\u0644\u0645\u0633\u0627\u0631 \u0627\u0644\u0645\u0637\u0644\u0648\u0628 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F", langOf(req)) });

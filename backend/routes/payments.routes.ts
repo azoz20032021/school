@@ -27,6 +27,8 @@ import {
 } from "../lib/db.js";
 import { requireAdmin, requireAuth, requireSelfOrStaff, requireStaff } from "../lib/auth.js";
 import { cached, invalidate } from "../lib/cache.js";
+import { CURRENCY, netAmount, remainingAmount, type InvoiceShape } from "../lib/money.js";
+import { sendDueReminders } from "../lib/dues.js";
 import { matchesStudent, normalizeArabic, paginate, studentRoster } from "../lib/roster.js";
 import { audit } from "../lib/audit.js";
 import { badRequest, notFound, wrap } from "../lib/http.js";
@@ -34,7 +36,7 @@ import * as v from "../lib/validate.js";
 
 const router = Router();
 
-export const CURRENCY = "IQD";
+export { CURRENCY, netAmount, remainingAmount } from "../lib/money.js";
 
 const CATEGORIES = ["قسط دراسي", "رسوم تسجيل", "كتب وقرطاسية", "نقل مدرسي", "زي مدرسي", "نشاطات", "أخرى"] as const;
 const METHODS = ["نقدي", "تحويل بنكي", "محفظة إلكترونية", "شيك"] as const;
@@ -45,23 +47,6 @@ const DEFAULT_PAGE_SIZE = 20;
 
 /** How long the cached invoice scan may be reused; every write drops it. */
 const FINANCE_TTL_MS = 30_000;
-
-interface InvoiceShape {
-  amount?: number;
-  discount?: number;
-  paid_amount?: number;
-  status?: string;
-  [key: string]: unknown;
-}
-
-export function netAmount(inv: InvoiceShape): number {
-  return Math.max(0, Number(inv.amount || 0) - Number(inv.discount || 0));
-}
-
-export function remainingAmount(inv: InvoiceShape): number {
-  if (inv.status === "cancelled") return 0;
-  return Math.max(0, netAmount(inv) - Number(inv.paid_amount || 0));
-}
 
 function deriveStatus(inv: InvoiceShape): string {
   if (inv.status === "cancelled") return "cancelled";
@@ -481,6 +466,24 @@ router.get(
       invoices: invoices.map((i) => ({ ...i, net_amount: netAmount(i), remaining: remainingAmount(i) })),
       payments,
     });
+  })
+);
+
+/**
+ * Push the fee reminders out now rather than waiting for the hourly sweep.
+ * Sending is idempotent, so pressing it twice changes nothing.
+ */
+router.post(
+  "/admin/finance/reminders",
+  requireStaff,
+  wrap(async (req, res) => {
+    const result = await sendDueReminders();
+    audit(req, {
+      action: "reminder",
+      entity: "invoice",
+      summary: `إرسال ${result.sent} تذكير بمواعيد الأقساط`,
+    });
+    res.json({ success: true, ...result });
   })
 );
 

@@ -50,6 +50,7 @@ const Subjects = lazyRetry(() => import('./pages/Subjects').then((m) => ({ defau
 const Schedule = lazyRetry(() => import('./pages/Schedule').then((m) => ({ default: m.Schedule })));
 const GradesManagement = lazyRetry(() => import('./pages/GradesManagement').then((m) => ({ default: m.GradesManagement })));
 const Behavior = lazyRetry(() => import('./pages/Behavior').then((m) => ({ default: m.Behavior })));
+const Homework = lazyRetry(() => import('./pages/Homework').then((m) => ({ default: m.Homework })));
 const Reports = lazyRetry(() => import('./pages/Reports').then((m) => ({ default: m.Reports })));
 const Settings = lazyRetry(() => import('./pages/Settings').then((m) => ({ default: m.Settings })));
 
@@ -127,6 +128,7 @@ function AppRoutes() {
         <Route path="/subjects" element={<WithUser render={(u) => <Subjects user={u} />} />} />
         <Route path="/schedule" element={<WithUser render={(u) => <Schedule user={u} />} />} />
         <Route path="/behavior" element={<WithUser render={(u) => <Behavior user={u} />} />} />
+        <Route path="/homework" element={<WithUser render={(u) => <Homework user={u} />} />} />
         <Route path="/reports" element={<WithUser render={(u) => <Reports user={u} />} />} />
         <Route path="/settings" element={<WithUser render={(u) => <Settings user={u} />} />} />
         <Route

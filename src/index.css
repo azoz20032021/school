@@ -50,6 +50,20 @@ body {
     print-color-adjust: exact;
   }
 
+  /*
+   * A list report has many more columns than a statement about one person, so
+   * it asks for a landscape sheet by name. Without this the right-hand columns
+   * simply fell off the page.
+   */
+  @page landscape {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  .print-landscape {
+    page: landscape;
+  }
+
   /* A statement should never be split across sheets mid-block. */
   .print-block {
     break-inside: avoid;

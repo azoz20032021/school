@@ -15,6 +15,7 @@ export type AuditAction =
   | "enroll"
   | "attendance"
   | "broadcast"
+  | "reminder"
   | "payment";
 
 interface AuditInput {

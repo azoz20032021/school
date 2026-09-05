@@ -126,6 +126,7 @@ export const registrationsRef = collection(db, "registrations");
 export const invoicesRef = collection(db, "invoices");
 export const paymentsRef = collection(db, "payments");
 export const behaviorRef = collection(db, "behavior_notes");
+export const homeworkRef = collection(db, "homework");
 export const auditRef = collection(db, "audit_logs");
 
 /** Firestore caps `in` / `array-contains-any` filters at 30 values. */

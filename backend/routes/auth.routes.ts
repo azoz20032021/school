@@ -12,6 +12,7 @@ import {
   type Role,
 } from "../lib/auth.js";
 import { audit } from "../lib/audit.js";
+import { maybeSendDueReminders, studentDues } from "../lib/dues.js";
 import { badRequest, HttpError, wrap } from "../lib/http.js";
 import * as v from "../lib/validate.js";
 
@@ -82,9 +83,16 @@ router.post(
     req.user = sessionUser;
     audit(req, { action: "login", entity: "user", entityId: userDoc.id, summary: `تسجيل دخول ناجح` });
 
+    /**
+     * A student's outstanding fees travel with their account: the app locks
+     * itself to a "settle your fees" screen while an invoice is past its due
+     * date, and it must learn that from the server rather than from the client.
+     */
+    const dues = sessionUser.role === "student" ? await studentDues(userDoc.id) : undefined;
+
     res.json({
       token: createToken(sessionUser),
-      user: sanitizeUser({ id: userDoc.id, ...data }),
+      user: { ...sanitizeUser({ id: userDoc.id, ...data }), dues },
     });
   })
 );
@@ -99,7 +107,13 @@ router.get(
     const userDoc = snapshot.docs[0];
     const data = userDoc.data() as Record<string, any>;
     if (data.status === "suspended") throw new HttpError(403, "تم إيقاف هذا الحساب");
-    res.json(sanitizeUser({ id: userDoc.id, ...data }));
+
+    // Neither host runs a scheduler, so the fee reminders ride along with the
+    // ordinary traffic. This does real work at most once an hour.
+    maybeSendDueReminders();
+
+    const dues = data.role === "student" ? await studentDues(userDoc.id) : undefined;
+    res.json({ ...sanitizeUser({ id: userDoc.id, ...data }), dues });
   })
 );
 
