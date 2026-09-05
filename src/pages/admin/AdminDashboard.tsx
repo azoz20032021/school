@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Users, BookOpen, Plus, ChevronRight, Trash2, ArrowRight, Printer, UserX, Search } from 'lucide-react';
+import { Users, BookOpen, Plus, ChevronRight, Trash2, ArrowRight, UserX, Search } from 'lucide-react';
 import { ClassData, UserData } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { api, ApiError } from '../../lib/api';

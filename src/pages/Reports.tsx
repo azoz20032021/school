@@ -129,9 +129,9 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
             <div className="flex items-start justify-between gap-3 print:hidden">
                 <div>
                     <h2 className="text-lg font-black text-slate-800">{t('التقارير')}</h2>
-                    <p className="text-xs text-slate-400 font-medium mt-0.5">{t('اعرض التقرير ثم اطبعه أو احفظه PDF')}</p>
+                    <p className="text-xs text-slate-400 font-medium mt-0.5">{t(isStaff(user.role) ? 'اعرض التقرير ثم اطبعه أو احفظه PDF' : 'اعرض التقرير على الشاشة')}</p>
                 </div>
-                {data && (
+                {data && isStaff(user.role) && (
                     <button
                         onClick={() => window.print()}
                         className="bg-slate-800 text-white px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5 shrink-0"

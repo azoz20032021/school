@@ -653,6 +653,7 @@ export const en: Record<string, string> = {
 
   /* ------------------------- single-student debt statement ------------------------- */
   "بدون اسم": "Unnamed",
+  "اعرض التقرير على الشاشة": "View the report on screen",
   "كشف ديون طالب": "Student debt statement",
   "لا توجد رسوم مسجلة على هذا الطالب": "No fees recorded for this student",
   "الدفعات المستلمة": "Payments received",
