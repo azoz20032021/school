@@ -516,7 +516,7 @@ export const AdminDashboard: React.FC = () => {
                                     </div>
                                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 max-h-60 overflow-y-auto p-2 bg-white rounded-2xl border border-slate-100 font-sans">
                                         {validUids.length > 0 ? (
-                                            validUids.sort((a, b) => b.createdAt?.seconds - a.createdAt?.seconds).map(u => (
+                                            [...validUids].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)).map(u => (
                                                 <div
                                                     key={u.id}
                                                     className={`p-2 rounded-lg border text-[10px] font-bold text-center transition-all flex justify-between items-center group relative cursor-copy ${u.used
@@ -592,7 +592,7 @@ export const AdminDashboard: React.FC = () => {
                                                     : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-200'
                                                     }`}
                                             >
-                                                {t.name}
+                                                {teacher.name}
                                             </button>
                                         ))}
                                     </div>
