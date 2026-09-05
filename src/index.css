@@ -20,6 +20,56 @@ body {
   width: 100%;
 }
 
+/*
+ * Printing.
+ *
+ * The reports are official paperwork — a parent or a ministry inspector reads
+ * them on paper, not on screen. Without these rules the browser printed the
+ * whole application: the sticky header, the bottom navigation bar, card
+ * shadows and screen-sized type, which pushed a one-page statement onto three.
+ *
+ * Anything marked `print:hidden` disappears, the sheet becomes A4 with a real
+ * margin, and type tightens to a size that fits a page while staying readable.
+ */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 14mm 12mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    overflow: visible;
+  }
+
+  body {
+    font-size: 11px;
+    line-height: 1.45;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* A statement should never be split across sheets mid-block. */
+  .print-block {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  table {
+    break-inside: auto;
+  }
+
+  tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+}
+
 * {
   box-sizing: border-box;
 }

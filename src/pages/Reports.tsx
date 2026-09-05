@@ -3,9 +3,9 @@ import { FileBarChart, Printer } from 'lucide-react';
 import { ClassData, UserData } from '../types';
 import { api, ApiError, formatMoney } from '../lib/api';
 import { isStaff } from '../context/AuthContext';
-import { Card, EmptyState, ErrorBanner, SectionTitle, Spinner, inputClass, labelClass } from '../components/ui';
+import { Card, ErrorBanner, Spinner, inputClass, labelClass } from '../components/ui';
 import { PickableStudent, StudentPicker } from '../components/StudentPicker';
-import { t } from '../i18n';
+import { localeOf, t } from '../i18n';
 
 type ReportKind = 'student' | 'class' | 'attendance' | 'finance';
 
@@ -23,6 +23,14 @@ const STATUS_LABEL: Record<string, string> = {
     cancelled: 'ملغى',
 };
 
+/**
+ * A statement is meant to be one sheet. These caps keep a student with a long
+ * history from turning their report into a five-page printout; the count of
+ * what was left out is printed underneath so nothing looks hidden.
+ */
+const BEHAVIOR_ROWS = 12;
+const PAYMENT_ROWS = 14;
+
 const today = () => new Date().toISOString().slice(0, 10);
 const monthAgo = () => {
     const d = new Date();
@@ -30,33 +38,111 @@ const monthAgo = () => {
     return d.toISOString().slice(0, 10);
 };
 
-const PrintHeader: React.FC<{ title: string; subtitle?: string }> = ({ title, subtitle }) => (
-    <div className="hidden print:flex items-center justify-between border-b-2 border-slate-800 pb-3 mb-5">
-        <div>
-            <p className="text-lg font-black">{t('ثانوية المعالي الأهلية')}</p>
-            <p className="text-xs">{title}{subtitle ? ` — ${subtitle}` : ''}</p>
-        </div>
-        <p className="text-[10px]">تاريخ الطباعة: {new Date().toLocaleDateString('ar-EG')}</p>
+/**
+ * A report is paperwork: a parent, a bank or the ministry reads it on paper.
+ * These three pieces give every statement the same official shape — a letter
+ * head, an identity block, and somewhere for the school to sign and stamp —
+ * and they look the same on screen as they do on the sheet, so nobody has to
+ * print one to find out how it came out.
+ */
+
+const SCHOOL_NAME = 'ثانوية المعالي الأهلية';
+
+/** One sheet of A4: bordered on screen, edge-to-edge on paper. */
+const Sheet: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-8 max-w-[860px] mx-auto print:max-w-none print:border-0 print:rounded-none print:shadow-none print:p-0">
+        {children}
     </div>
 );
 
+const SheetHeader: React.FC<{ title: string; meta?: string }> = ({ title, meta }) => (
+    <div className="flex items-start justify-between gap-4 border-b-2 border-slate-800 pb-3 mb-4 print-block">
+        <div className="flex items-center gap-3">
+            <img src="/logo.png" alt="" className="w-12 h-12 object-contain print:w-11 print:h-11" />
+            <div>
+                <p className="text-base font-black text-slate-900 leading-tight">{t(SCHOOL_NAME)}</p>
+                <p className="text-[10px] text-slate-500 font-bold mt-0.5">{t('إدارة شؤون الطلاب')}</p>
+            </div>
+        </div>
+        <div className="text-left shrink-0">
+            <p className="text-sm font-black text-slate-900">{title}</p>
+            <p className="text-[10px] text-slate-500 font-bold mt-0.5">
+                {t('تاريخ الإصدار')}: {new Date().toLocaleDateString(localeOf())}
+            </p>
+            {meta && <p className="text-[10px] text-slate-500 font-bold">{meta}</p>}
+        </div>
+    </div>
+);
+
+/**
+ * The identity block. The order is deliberate and is the order the school reads
+ * these out in: name first, then the class, then the national ID.
+ */
+const IdentityTable: React.FC<{ rows: [string, string][] }> = ({ rows }) => (
+    <table className="w-full text-[11px] border-collapse mb-4 print-block">
+        <tbody>
+            {rows.map(([label, value], i) => (
+                <tr key={label} className={i % 2 ? 'bg-slate-50/60' : ''}>
+                    <th className="text-right font-bold text-slate-500 border border-slate-200 px-3 py-1.5 w-36 whitespace-nowrap">
+                        {t(label)}
+                    </th>
+                    <td className="font-black text-slate-800 border border-slate-200 px-3 py-1.5">{value || '—'}</td>
+                </tr>
+            ))}
+        </tbody>
+    </table>
+);
+
+const SignatureBlock: React.FC<{ left?: string }> = ({ left = 'توقيع المسؤول' }) => (
+    <div className="grid grid-cols-3 gap-4 mt-6 pt-4 border-t border-slate-200 text-center print-block">
+        <div>
+            <p className="text-[11px] font-black text-slate-700">{t(left)}</p>
+            <div className="h-14 border-b border-slate-400 mt-1" />
+        </div>
+        <div>
+            <p className="text-[11px] font-black text-slate-700">{t('ختم المدرسة')}</p>
+            <div className="h-14 mt-1 border border-dashed border-slate-300 rounded-lg" />
+        </div>
+        <div>
+            <p className="text-[11px] font-black text-slate-700">{t('مدير المدرسة')}</p>
+            <div className="h-14 border-b border-slate-400 mt-1" />
+        </div>
+    </div>
+);
+
+/** A titled band inside a sheet — replaces the stack of separate cards. */
+const Block: React.FC<{ title: string; note?: string; children: React.ReactNode }> = ({ title, note, children }) => (
+    <section className="mb-4 print-block">
+        <div className="flex items-baseline justify-between gap-3 border-r-4 border-slate-800 pr-2 mb-2">
+            <h4 className="text-xs font-black text-slate-800">{title}</h4>
+            {note && <span className="text-[10px] font-bold text-slate-400">{note}</span>}
+        </div>
+        {children}
+    </section>
+);
+
 const Table: React.FC<{ headers: string[]; rows: (string | number | React.ReactNode)[][] }> = ({ headers, rows }) => (
-    <div className="overflow-x-auto">
-        <table className="w-full text-xs border-collapse">
+    <div className="overflow-x-auto print:overflow-visible">
+        <table className="w-full text-[11px] border-collapse">
             <thead>
-                <tr className="bg-slate-50 print:bg-slate-100">
+                <tr className="bg-slate-100">
                     {headers.map((h) => (
-                        <th key={h} className="text-right font-black text-slate-600 px-3 py-2.5 border-b border-slate-200 whitespace-nowrap">
-                            {h}
+                        <th
+                            key={h}
+                            className="text-right font-black text-slate-700 border border-slate-300 px-2.5 py-1.5 whitespace-nowrap"
+                        >
+                            {t(h)}
                         </th>
                     ))}
                 </tr>
             </thead>
             <tbody>
                 {rows.map((row, i) => (
-                    <tr key={i} className="border-b border-slate-50 last:border-0">
+                    <tr key={i}>
                         {row.map((cell, j) => (
-                            <td key={j} className="px-3 py-2.5 text-slate-700 font-bold whitespace-nowrap">{cell}</td>
+                            <td key={j} className="border border-slate-200 px-2.5 py-1.5 text-slate-700 font-bold whitespace-nowrap">
+                                {cell}
+                            </td>
                         ))}
                     </tr>
                 ))}
@@ -234,53 +320,39 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
             {loading && <Spinner label={t('جاري تجميع البيانات')} />}
 
             {data && tab === 'student' && (
-                <div className="space-y-4 print:space-y-3">
-                    <PrintHeader title={t('كشف الطالب')} subtitle={data.student.name} />
+                <Sheet>
+                    <SheetHeader title={t('كشف حال الطالب')} meta={`${t('الرقم التعريفي')}: ${data.student.uid}`} />
 
-                    <Card className="p-5 print:shadow-none print:border-slate-300">
-                        <SectionTitle title={t('بيانات الطالب')} />
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                            {[
-                                ['الاسم', data.student.name],
-                                ['الرقم التعريفي', data.student.uid],
-                                ['الصف', data.student.class_name || '—'],
-                                ['هاتف ولي الأمر', data.student.guardian_phone || '—'],
-                            ].map(([label, value]) => (
-                                <div key={label} className="bg-slate-50 rounded-xl p-3 print:bg-white print:border print:border-slate-200">
-                                    <p className="text-[10px] text-slate-400 font-bold">{label}</p>
-                                    <p className="font-black text-slate-800 mt-0.5">{value}</p>
-                                </div>
-                            ))}
-                        </div>
-                    </Card>
+                    <IdentityTable
+                        rows={[
+                            ['الاسم', data.student.name],
+                            ['الصف', data.student.class_name || '—'],
+                            ['الرقم الوطني', data.student.national_id || '—'],
+                            ['الرقم التعريفي', data.student.uid],
+                            ['اسم الأم', data.student.mother_name || '—'],
+                            ['ولي الأمر', [data.student.guardian_name, data.student.guardian_phone].filter(Boolean).join(' — ') || '—'],
+                        ]}
+                    />
 
-                    <div className="grid md:grid-cols-3 gap-4">
-                        <Card className="p-5">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase">{t('المعدل العام')}</p>
-                            <p className="text-2xl font-black text-indigo-600 mt-1">
-                                {data.grades.stats.overall_percentage ?? '—'}%
-                            </p>
-                        </Card>
-                        <Card className="p-5">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase">{t('نسبة الحضور')}</p>
-                            <p className="text-2xl font-black text-emerald-600 mt-1">{data.attendance.stats.rate}%</p>
-                            <p className="text-[10px] text-slate-400 mt-1">
-                                {data.attendance.stats.absent} غياب من {data.attendance.stats.total} يوم
-                            </p>
-                        </Card>
-                        <Card className="p-5">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase">{t('المتبقي مالياً')}</p>
-                            <p className={`text-2xl font-black mt-1 ${data.finance.is_clear ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                {formatMoney(data.finance.outstanding)}
-                            </p>
-                            <p className="text-[10px] text-slate-400 mt-1">من {formatMoney(data.finance.total_billed)}</p>
-                        </Card>
+                    <div className="grid grid-cols-3 gap-3 mb-4 print-block">
+                        {[
+                            ['المعدل العام', data.grades.stats.overall_percentage === null ? '—' : `${data.grades.stats.overall_percentage}%`, 'text-indigo-700'],
+                            ['نسبة الحضور', `${data.attendance.stats.rate}%`, 'text-emerald-700'],
+                            ['المتبقي مالياً', formatMoney(data.finance.outstanding), data.finance.is_clear ? 'text-emerald-700' : 'text-rose-700'],
+                        ].map(([label, value, tone]) => (
+                            <div key={label} className="border border-slate-300 rounded-lg px-3 py-2 text-center">
+                                <p className="text-[10px] font-bold text-slate-500">{t(label)}</p>
+                                <p className={`text-base font-black mt-0.5 ${tone}`}>{value}</p>
+                            </div>
+                        ))}
                     </div>
 
-                    <Card className="p-5">
-                        <SectionTitle title={t('المعدل حسب المادة')} />
+                    <Block
+                        title={t('المعدل حسب المادة')}
+                        note={`${t('عدد المواد')}: ${data.grades.stats.subjects.length}`}
+                    >
                         {data.grades.stats.subjects.length === 0 ? (
-                            <EmptyState message={t('لا توجد درجات مسجلة')} />
+                            <p className="text-[11px] font-bold text-slate-400 py-3">{t('لا توجد درجات مسجلة')}</p>
                         ) : (
                             <Table
                                 headers={['المادة', 'عدد التقييمات', 'المجموع', 'النسبة']}
@@ -289,34 +361,66 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                                 ])}
                             />
                         )}
-                    </Card>
+                    </Block>
 
-                    <Card className="p-5">
-                        <SectionTitle title={t('السلوك')} subtitle={`درجة السلوك ${data.behavior.conduct_score}/100`} />
+                    <Block
+                        title={t('الحضور والغياب')}
+                        note={`${data.attendance.stats.total} ${t('يوم مسجّل')}`}
+                    >
+                        <Table
+                            headers={['حاضر', 'غائب', 'متأخر', 'بعذر', 'النسبة']}
+                            rows={[[
+                                data.attendance.stats.present,
+                                data.attendance.stats.absent,
+                                data.attendance.stats.late,
+                                data.attendance.stats.excused,
+                                `${data.attendance.stats.rate}%`,
+                            ]]}
+                        />
+                    </Block>
+
+                    <Block
+                        title={t('السلوك والملاحظات')}
+                        note={`${t('درجة السلوك')} ${data.behavior.conduct_score}/100 · ${data.behavior.positive} ${t('إيجابية')} · ${data.behavior.negative} ${t('سلبية')}`}
+                    >
                         {data.behavior.notes.length === 0 ? (
-                            <EmptyState message={t('لا توجد ملاحظات سلوكية')} />
+                            <p className="text-[11px] font-bold text-slate-400 py-3">{t('لا توجد ملاحظات سلوكية')}</p>
                         ) : (
                             <Table
-                                headers={['التاريخ', 'النوع', 'التصنيف', 'الملاحظة']}
-                                rows={data.behavior.notes.map((n: any) => [
-                                    n.date, n.type === 'positive' ? 'إيجابية' : 'سلبية', n.category, n.title,
+                                headers={['التاريخ', 'النوع', 'التصنيف', 'الملاحظة', 'النقاط', 'المسجّل']}
+                                rows={data.behavior.notes.slice(0, BEHAVIOR_ROWS).map((n: any) => [
+                                    n.date,
+                                    n.type === 'positive' ? t('إيجابية') : t('سلبية'),
+                                    n.category,
+                                    <span key="title" className="whitespace-normal">{n.title}{n.description ? ` — ${n.description}` : ''}</span>,
+                                    n.points > 0 ? `+${n.points}` : n.points,
+                                    n.created_by_name || '—',
                                 ])}
                             />
                         )}
-                    </Card>
-                </div>
+                        {data.behavior.notes.length > BEHAVIOR_ROWS && (
+                            <p className="text-[10px] text-slate-400 font-bold mt-1.5">
+                                {t('يعرض أحدث {shown} ملاحظة من أصل {total}', {
+                                    shown: BEHAVIOR_ROWS,
+                                    total: data.behavior.notes.length,
+                                })}
+                            </p>
+                        )}
+                    </Block>
+
+                    <SignatureBlock left={t('توقيع المرشد التربوي')} />
+                </Sheet>
             )}
 
             {data && tab === 'class' && (
-                <div className="space-y-4">
-                    <PrintHeader title={t('كشف درجات')} subtitle={data.class.name} />
-                    <Card className="p-5">
-                        <SectionTitle
-                            title={data.class.name}
-                            subtitle={`${data.students.length} طالب · معدل الصف ${data.class_average ?? '—'}%`}
-                        />
+                <Sheet>
+                    <SheetHeader title={t('كشف درجات صف')} meta={data.class.name} />
+                    <Block
+                        title={data.class.name}
+                        note={`${data.students.length} ${t('طالب')} · ${t('معدل الصف')} ${data.class_average ?? '—'}%`}
+                    >
                         {data.students.length === 0 ? (
-                            <EmptyState message={t('لا يوجد طلاب في هذا الصف')} />
+                            <p className="text-[11px] font-bold text-slate-400 py-3">{t('لا يوجد طلاب في هذا الصف')}</p>
                         ) : (
                             <Table
                                 headers={['الطالب', 'الرقم', ...data.subjects, 'المعدل', 'الحضور', 'المتبقي']}
@@ -332,17 +436,17 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                                 ])}
                             />
                         )}
-                    </Card>
-                </div>
+                    </Block>
+                    <SignatureBlock left={t('توقيع معاون المدير')} />
+                </Sheet>
             )}
 
             {data && tab === 'attendance' && (
-                <div className="space-y-4">
-                    <PrintHeader title={t('كشف الغياب')} subtitle={`${data.from} إلى ${data.to}`} />
-                    <Card className="p-5">
-                        <SectionTitle title={t('ملخص الحضور')} subtitle={`من ${data.from} إلى ${data.to}`} />
+                <Sheet>
+                    <SheetHeader title={t('كشف الغياب')} meta={`${data.from} — ${data.to}`} />
+                    <Block title={t('ملخص الحضور')} note={`${t('من')} ${data.from} ${t('إلى')} ${data.to}`}>
                         {data.students.length === 0 ? (
-                            <EmptyState message={t('لا توجد سجلات حضور في هذه الفترة')} />
+                            <p className="text-[11px] font-bold text-slate-400 py-3">{t('لا توجد سجلات حضور في هذه الفترة')}</p>
                         ) : (
                             <Table
                                 headers={['الطالب', 'الرقم', 'حاضر', 'غائب', 'متأخر', 'بعذر', 'النسبة', 'هاتف ولي الأمر']}
@@ -351,111 +455,109 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                                 ])}
                             />
                         )}
-                    </Card>
-                </div>
+                    </Block>
+                    <SignatureBlock left={t('توقيع مسؤول الانضباط')} />
+                </Sheet>
             )}
 
             {data && tab === 'finance' && data.single && (
-                <div className="space-y-4">
-                    <PrintHeader title={t('كشف ديون طالب')} subtitle={data.student?.name} />
+                <Sheet>
+                    <SheetHeader title={t('كشف ديون طالب')} meta={`${t('الرقم التعريفي')}: ${data.student?.uid || '—'}`} />
 
-                    <Card className="p-5 print:shadow-none print:border-slate-300">
-                        <SectionTitle title={t('بيانات الطالب')} />
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                            {[
-                                ['الاسم', data.student?.name || '—'],
-                                ['الرقم التعريفي', data.student?.uid || '—'],
-                                ['الصف', data.student?.class_name || '—'],
-                                ['هاتف ولي الأمر', data.student?.guardian_phone || '—'],
-                            ].map(([label, value]) => (
-                                <div key={label} className="bg-slate-50 rounded-xl p-3 print:bg-white print:border print:border-slate-200">
-                                    <p className="text-[10px] text-slate-400 font-bold">{label}</p>
-                                    <p className="font-black text-slate-800 mt-0.5">{value}</p>
-                                </div>
-                            ))}
-                        </div>
-                    </Card>
+                    <IdentityTable
+                        rows={[
+                            ['الاسم', data.student?.name || '—'],
+                            ['الصف', data.student?.class_name || '—'],
+                            ['الرقم الوطني', data.student?.national_id || '—'],
+                            ['الرقم التعريفي', data.student?.uid || '—'],
+                            ['هاتف ولي الأمر', data.student?.guardian_phone || '—'],
+                        ]}
+                    />
 
-                    <div className="grid md:grid-cols-3 gap-4">
-                        <Card className="p-5">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase">{t('إجمالي المستحق')}</p>
-                            <p className="text-2xl font-black text-slate-800 mt-1">{formatMoney(data.summary.total_billed)}</p>
-                        </Card>
-                        <Card className="p-5">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase">{t('المسدد')}</p>
-                            <p className="text-2xl font-black text-emerald-600 mt-1">{formatMoney(data.summary.total_paid)}</p>
-                        </Card>
-                        <Card className="p-5">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase">{t('المتبقي')}</p>
-                            <p className={`text-2xl font-black mt-1 ${data.summary.is_clear ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                {formatMoney(data.summary.outstanding)}
-                            </p>
-                            {data.summary.overdue_count > 0 && (
-                                <p className="text-[10px] text-rose-400 font-bold mt-1">
-                                    {data.summary.overdue_count} سند متأخر بقيمة {formatMoney(data.summary.overdue_amount)}
-                                </p>
-                            )}
-                        </Card>
+                    <div className="grid grid-cols-3 gap-3 mb-4 print-block">
+                        {[
+                            ['إجمالي المستحق', formatMoney(data.summary.total_billed), 'text-slate-800'],
+                            ['المسدد', formatMoney(data.summary.total_paid), 'text-emerald-700'],
+                            ['المتبقي', formatMoney(data.summary.outstanding), data.summary.is_clear ? 'text-emerald-700' : 'text-rose-700'],
+                        ].map(([label, value, tone]) => (
+                            <div key={label} className="border border-slate-300 rounded-lg px-3 py-2 text-center">
+                                <p className="text-[10px] font-bold text-slate-500">{t(label)}</p>
+                                <p className={`text-base font-black mt-0.5 ${tone}`}>{value}</p>
+                            </div>
+                        ))}
                     </div>
 
-                    <Card className="p-5">
-                        <SectionTitle title={t('السندات')} subtitle={`${data.invoices.length} سند`} />
+                    {data.summary.overdue_count > 0 && (
+                        <p className="text-[11px] font-black text-rose-700 border border-rose-200 bg-rose-50 rounded-lg px-3 py-2 mb-4 print-block">
+                            {t('عليه {count} سند متأخر بقيمة {amount}', {
+                                count: data.summary.overdue_count,
+                                amount: formatMoney(data.summary.overdue_amount),
+                            })}
+                        </p>
+                    )}
+
+                    <Block title={t('السندات')} note={`${data.invoices.length} ${t('سند')}`}>
                         {data.invoices.length === 0 ? (
-                            <EmptyState message={t('لا توجد رسوم مسجلة على هذا الطالب')} />
+                            <p className="text-[11px] font-bold text-slate-400 py-3">{t('لا توجد رسوم مسجلة على هذا الطالب')}</p>
                         ) : (
                             <Table
                                 headers={['السند', 'النوع', 'الاستحقاق', 'المبلغ', 'المسدد', 'المتبقي', 'الحالة']}
                                 rows={data.invoices.map((i: any) => [
                                     i.title, i.category || '—', i.due_date || '—',
                                     formatMoney(i.net_amount), formatMoney(i.paid_amount), formatMoney(i.remaining),
-                                    STATUS_LABEL[i.status] || i.status,
+                                    t(STATUS_LABEL[i.status] || i.status),
                                 ])}
                             />
                         )}
-                    </Card>
+                    </Block>
 
-                    <Card className="p-5">
-                        <SectionTitle title={t('الدفعات المستلمة')} />
+                    <Block title={t('الدفعات المستلمة')} note={`${data.payments.length} ${t('دفعة')}`}>
                         {data.payments.length === 0 ? (
-                            <EmptyState message={t('لا توجد دفعات مسجلة')} />
+                            <p className="text-[11px] font-bold text-slate-400 py-3">{t('لا توجد دفعات مسجلة')}</p>
                         ) : (
                             <Table
                                 headers={['التاريخ', 'المبلغ', 'الطريقة', 'رقم الوصل', 'المستلم']}
-                                rows={data.payments.map((p: any) => [
+                                rows={data.payments.slice(0, PAYMENT_ROWS).map((p: any) => [
                                     p.paid_at || '—', formatMoney(p.amount), p.method || '—',
                                     p.receipt_no || '—', p.recorded_by_name || '—',
                                 ])}
                             />
                         )}
-                    </Card>
-                </div>
+                    </Block>
+
+                    <p className="text-[10px] text-slate-500 font-bold border-t border-slate-200 pt-2 print-block">
+                        {t('هذا الكشف صادر عن إدارة المدرسة ولا يُعتد به إلا مختوماً وموقّعاً.')}
+                    </p>
+
+                    <SignatureBlock left={t('توقيع المحاسب')} />
+                </Sheet>
             )}
 
             {data && tab === 'finance' && !data.single && (
-                <div className="space-y-4">
-                    <PrintHeader
+                <Sheet>
+                    <SheetHeader
                         title={t('كشف الديون')}
-                        subtitle={selectedClass ? classes.find((c) => c.id === selectedClass)?.name : t('كل الصفوف')}
+                        meta={selectedClass ? classes.find((c) => c.id === selectedClass)?.name : t('كل الصفوف')}
                     />
-                    <Card className="p-5">
-                        <SectionTitle
-                            title={t('حالة السداد')}
-                            subtitle={`${data.totals?.debtors ?? data.students.filter((s: any) => !s.is_clear).length} طالب عليه مستحقات · إجمالي المتبقي ${formatMoney(data.totals?.outstanding)}`}
-                        />
+                    <Block
+                        title={t('حالة السداد')}
+                        note={`${data.totals?.debtors ?? 0} ${t('طالب عليه مستحقات')} · ${t('إجمالي المتبقي')} ${formatMoney(data.totals?.outstanding)}`}
+                    >
                         {data.students.length === 0 ? (
-                            <EmptyState message={t('لا يوجد طلاب مطابقون')} />
+                            <p className="text-[11px] font-bold text-slate-400 py-3">{t('لا يوجد طلاب مطابقون')}</p>
                         ) : (
                             <Table
-                                headers={['الطالب', 'الرقم', 'الصف', 'الإجمالي', 'المسدد', 'المتبقي', 'الحالة', 'هاتف ولي الأمر']}
+                                headers={['الطالب', 'الصف', 'الرقم الوطني', 'الرقم التعريفي', 'الإجمالي', 'المسدد', 'المتبقي', 'الحالة', 'هاتف ولي الأمر']}
                                 rows={data.students.map((s: any) => [
-                                    s.name, s.uid, s.class_name,
+                                    s.name, s.class_name, s.national_id || '—', s.uid,
                                     formatMoney(s.total_billed), formatMoney(s.total_paid), formatMoney(s.outstanding),
-                                    s.payment_status, s.guardian_phone || '—',
+                                    t(s.payment_status), s.guardian_phone || '—',
                                 ])}
                             />
                         )}
-                    </Card>
-                </div>
+                    </Block>
+                    <SignatureBlock left={t('توقيع المحاسب')} />
+                </Sheet>
             )}
         </div>
     );

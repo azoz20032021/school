@@ -241,8 +241,8 @@ const StaffView: React.FC<{ user: UserData }> = ({ user }) => {
             </select>
 
             <div className="grid grid-cols-3 gap-3">
-                <StatCard label={t('إيجابية')} value={stats.positive} tone="emerald" icon={<ThumbsUp className="w-4 h-4 opacity-50" />} />
-                <StatCard label={t('سلبية')} value={stats.negative} tone="rose" icon={<ThumbsDown className="w-4 h-4 opacity-50" />} />
+                <StatCard label={t('إيجابية')} value={stats.positive} hint={t('ضمن المعروض')} tone="emerald" icon={<ThumbsUp className="w-4 h-4 opacity-50" />} />
+                <StatCard label={t('سلبية')} value={stats.negative} hint={t('ضمن المعروض')} tone="rose" icon={<ThumbsDown className="w-4 h-4 opacity-50" />} />
                 <StatCard label={t('عدد الطلاب')} value={roster.length} tone="indigo" icon={<Award className="w-4 h-4 opacity-50" />} />
             </div>
 

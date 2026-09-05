@@ -33,6 +33,14 @@ import * as v from "../lib/validate.js";
 const router = Router();
 
 const RELATIONS = ["الأب", "الأم", "الأخ", "العم", "الخال", "الجد", "ولي أمر آخر"] as const;
+
+/**
+ * The public form serves two kinds of applicant. A student application needs a
+ * guardian and a class; a teacher application needs neither, and instead names
+ * the subjects they teach. Everything else — identity, contact, password — is
+ * the same, so one queue reviews both.
+ */
+const APPLICANT_ROLES = ["student", "teacher"] as const;
 const STATUSES = ["pending", "approved", "rejected"] as const;
 
 /** Unambiguous alphabet — no O/0 or I/1, since people read these off a screen. */
@@ -80,32 +88,50 @@ router.post(
   rateLimit({ windowMs: 60 * 60 * 1000, max: 10, keyPrefix: "register" }),
   wrap(async (req, res) => {
     const b = req.body || {};
+    const applicantRole = v.oneOf(b.applicant_role, "نوع الحساب", APPLICANT_ROLES, "student");
+    const isTeacher = applicantRole === "teacher";
 
     const application = {
+      applicant_role: applicantRole,
+
       full_name: v.str(b.full_name, "الاسم الرباعي", { min: 5, max: 120 }),
-      mother_name: v.str(b.mother_name, "اسم الأم", { min: 2, max: 120, optional: true }),
+      // Required for everyone: Iraqi records identify a person by their
+      // mother's name, and the school needs it on every official document.
+      mother_name: v.str(b.mother_name, "اسم الأم", { min: 2, max: 120 }),
       national_id: v.str(b.national_id, "رقم الهوية / البطاقة الوطنية", { min: 4, max: 40 }),
       birth_date: v.isoDate(b.birth_date, "تاريخ الميلاد"),
       birth_place: v.str(b.birth_place, "محل الولادة", { max: 120, optional: true }),
 
-      phone: v.phone(b.phone, "رقم هاتف الطالب"),
+      phone: v.phone(b.phone, isTeacher ? "رقم الهاتف" : "رقم هاتف الطالب"),
       email: v.email(b.email, "البريد الإلكتروني", { optional: true }),
       address: v.str(b.address, "عنوان السكن", { min: 3, max: 250 }),
 
-      guardian_name: v.str(b.guardian_name, "اسم ولي الأمر", { min: 3, max: 120 }),
-      guardian_phone: v.phone(b.guardian_phone, "هاتف ولي الأمر"),
-      guardian_relation: v.oneOf(b.guardian_relation, "صلة القرابة", RELATIONS, "الأب"),
-      guardian_job: v.str(b.guardian_job, "مهنة ولي الأمر", { max: 120, optional: true }),
+      // A teacher has no guardian; the fields stay on the document as empty
+      // strings so every application has the same shape.
+      guardian_name: isTeacher ? "" : v.str(b.guardian_name, "اسم ولي الأمر", { min: 3, max: 120 }),
+      guardian_phone: isTeacher ? "" : v.phone(b.guardian_phone, "هاتف ولي الأمر"),
+      guardian_relation: isTeacher ? "" : v.oneOf(b.guardian_relation, "صلة القرابة", RELATIONS, "الأب"),
+      guardian_job: isTeacher ? "" : v.str(b.guardian_job, "مهنة ولي الأمر", { max: 120, optional: true }),
 
-      previous_school: v.str(b.previous_school, "المدرسة السابقة", { max: 160, optional: true }),
-      last_grade: v.str(b.last_grade, "آخر صف دراسي", { max: 80, optional: true }),
-      last_average: v.str(b.last_average, "المعدل السابق", { max: 20, optional: true }),
+      previous_school: v.str(b.previous_school, isTeacher ? "جهة العمل السابقة" : "المدرسة السابقة", {
+        max: 160,
+        optional: true,
+      }),
+      last_grade: isTeacher ? "" : v.str(b.last_grade, "آخر صف دراسي", { max: 80, optional: true }),
+      last_average: isTeacher ? "" : v.str(b.last_average, "المعدل السابق", { max: 20, optional: true }),
       health_notes: v.str(b.health_notes, "ملاحظات صحية", { max: 600, optional: true }),
       notes: v.str(b.notes, "ملاحظات إضافية", { max: 600, optional: true }),
+
+      // Teacher-only.
+      subjects: isTeacher ? v.stringArray(b.subjects, "المواد", { max: 20 }) : [],
+      qualification: isTeacher ? v.str(b.qualification, "التحصيل الدراسي", { max: 120, optional: true }) : "",
+      experience_years: isTeacher ? v.str(b.experience_years, "سنوات الخبرة", { max: 10, optional: true }) : "",
     };
 
     const plainPassword = v.password(b.password);
-    const requestedClassId = v.str(b.requested_class_id, "الصف المطلوب", { max: 64, optional: true });
+    const requestedClassId = isTeacher
+      ? ""
+      : v.str(b.requested_class_id, "الصف المطلوب", { max: 64, optional: true });
 
     // Reject duplicates: same national ID already applied or already enrolled.
     const [dupApplication, dupUser] = await Promise.all([
@@ -148,7 +174,7 @@ router.post(
       action: "create",
       entity: "registration",
       entityId: created.id,
-      summary: `طلب تسجيل جديد باسم ${application.full_name}`,
+      summary: `طلب ${isTeacher ? "تعيين معلم" : "تسجيل طالب"} جديد باسم ${application.full_name}`,
     });
 
     res.status(201).json({
@@ -191,7 +217,7 @@ router.get(
  * Staff: review queue
  * ------------------------------------------------------------------ */
 
-const DEFAULT_PAGE_SIZE = 25;
+const DEFAULT_PAGE_SIZE = 20;
 
 router.get(
   "/admin/registrations",
@@ -230,6 +256,72 @@ router.get(
  * Staff: approve
  * ------------------------------------------------------------------ */
 
+/** Turns an approved teacher application into a staff account. */
+async function approveTeacher(
+  req: any,
+  res: any,
+  registrationDoc: any,
+  registrationId: string,
+  data: Record<string, any>
+) {
+  const uid = `TCH${Date.now().toString(36).toUpperCase().slice(-6)}`;
+  const subjects: string[] = Array.isArray(data.subjects) ? data.subjects : [];
+
+  const newUser = await addDoc(usersRef, {
+    name: data.full_name,
+    username: uid,
+    uid,
+    password: data.password, // already hashed at submission time
+    role: "teacher",
+    status: "active",
+
+    mother_name: data.mother_name || "",
+    national_id: data.national_id,
+    birth_date: data.birth_date,
+    birth_place: data.birth_place || "",
+    phone: data.phone,
+    email: data.email || "",
+    address: data.address,
+    subjects,
+    qualification: data.qualification || "",
+    experience_years: data.experience_years || "",
+    previous_school: data.previous_school || "",
+
+    registration_id: registrationId,
+    approved_by: req.user!.id,
+    approved_by_name: req.user!.name,
+    createdAt: serverTimestamp(),
+  });
+
+  await updateDoc(registrationDoc, {
+    status: "approved",
+    assigned_uid: uid,
+    created_user_id: newUser.id,
+    reviewed_by: req.user!.id,
+    reviewed_by_name: req.user!.name,
+    reviewed_at: serverTimestamp(),
+  });
+
+  await addDoc(notificationsRef, {
+    user_id: newUser.id,
+    title: "تمت الموافقة على طلبك",
+    message: `أهلاً بك ${data.full_name}. رقمك التعريفي للدخول هو: ${uid}.`,
+    type: "registration",
+    isRead: false,
+    createdAt: serverTimestamp(),
+  });
+
+  invalidate("teachers");
+  audit(req, {
+    action: "approve",
+    entity: "registration",
+    entityId: registrationId,
+    summary: `قبول المعلم ${data.full_name} برقم ${uid}`,
+  });
+
+  return res.json({ success: true, uid, user_id: newUser.id, role: "teacher" });
+}
+
 router.post(
   "/admin/registrations/:id/approve",
   requireStaff,
@@ -241,6 +333,15 @@ router.post(
     const data = snap.data() as Record<string, any>;
     if (data.status !== "pending") {
       throw badRequest(`تمت معالجة هذا الطلب مسبقاً (الحالة الحالية: ${data.status})`);
+    }
+
+    /**
+     * A teacher application creates a staff account instead of a student one:
+     * no class, no enrolment, no fees — and a `TCH` identifier rather than a
+     * sequential student number.
+     */
+    if (data.applicant_role === "teacher") {
+      return approveTeacher(req, res, registrationDoc, snap.id, data);
     }
 
     const classId = v.str(req.body?.class_id ?? data.requested_class_id, "الصف", {

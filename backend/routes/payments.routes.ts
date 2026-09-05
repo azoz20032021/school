@@ -41,7 +41,7 @@ const METHODS = ["نقدي", "تحويل بنكي", "محفظة إلكتروني
 const INVOICE_STATUSES = ["unpaid", "partial", "paid", "cancelled"] as const;
 
 const BATCH_LIMIT = 450;
-const DEFAULT_PAGE_SIZE = 25;
+const DEFAULT_PAGE_SIZE = 20;
 
 /** How long the cached invoice scan may be reused; every write drops it. */
 const FINANCE_TTL_MS = 30_000;
@@ -571,6 +571,7 @@ router.get(
         student_id: s.id,
         name: s.name,
         uid: s.uid,
+        national_id: s.national_id || "",
         phone: s.phone || "",
         guardian_phone: s.guardian_phone || "",
         class_id: s.class_id,

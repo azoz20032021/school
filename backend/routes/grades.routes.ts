@@ -22,7 +22,7 @@ const router = Router();
 
 const CATEGORIES = ["يومي", "شهري", "واجب", "مشاركة", "نصف الفصل", "نهائي", "امتحان"] as const;
 const SEMESTERS = ["الفصل الأول", "الفصل الثاني", "الفصل الثالث"] as const;
-const DEFAULT_PAGE_SIZE = 25;
+const DEFAULT_PAGE_SIZE = 20;
 
 /**
  * Subject-level authorization.

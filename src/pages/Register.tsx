@@ -9,7 +9,10 @@ import { LanguageToggle } from '../components/ui/LanguageToggle';
 
 const RELATIONS = ['الأب', 'الأم', 'الأخ', 'العم', 'الخال', 'الجد', 'ولي أمر آخر'];
 
+type ApplicantRole = 'student' | 'teacher';
+
 interface FormState {
+    applicant_role: ApplicantRole;
     full_name: string;
     mother_name: string;
     national_id: string;
@@ -28,32 +31,54 @@ interface FormState {
     health_notes: string;
     notes: string;
     requested_class_id: string;
+    subjects: string;
+    qualification: string;
+    experience_years: string;
     password: string;
     confirm_password: string;
 }
 
 const EMPTY: FormState = {
+    applicant_role: 'student',
     full_name: '', mother_name: '', national_id: '', birth_date: '', birth_place: '',
     phone: '', email: '', address: '',
     guardian_name: '', guardian_phone: '', guardian_relation: 'الأب', guardian_job: '',
     previous_school: '', last_grade: '', last_average: '', health_notes: '', notes: '',
-    requested_class_id: '', password: '', confirm_password: '',
+    requested_class_id: '', subjects: '', qualification: '', experience_years: '',
+    password: '', confirm_password: '',
 };
 
-const STEPS = [
+/**
+ * The same four steps serve both kinds of applicant; only the middle two differ
+ * in what they ask for. A teacher has no guardian and no class — they name the
+ * subjects they teach instead.
+ */
+const stepsFor = (role: ApplicantRole) => [
     { title: 'البيانات الشخصية', hint: 'كما هي في الهوية الرسمية' },
-    { title: 'التواصل وولي الأمر', hint: 'نستخدمها للإشعارات المهمة' },
-    { title: 'المعلومات الدراسية', hint: 'الصف المطلوب وسجلك السابق' },
+    role === 'teacher'
+        ? { title: 'معلومات التواصل', hint: 'نستخدمها للإشعارات المهمة' }
+        : { title: 'التواصل وولي الأمر', hint: 'نستخدمها للإشعارات المهمة' },
+    role === 'teacher'
+        ? { title: 'المعلومات المهنية', hint: 'المواد التي تدرّسها وخبرتك' }
+        : { title: 'المعلومات الدراسية', hint: 'الصف المطلوب وسجلك السابق' },
     { title: 'كلمة المرور', hint: 'ستدخل بها بعد موافقة الإدارة' },
 ];
 
 /** Fields that must be filled before each step is allowed to advance. */
-const REQUIRED_PER_STEP: (keyof FormState)[][] = [
-    ['full_name', 'national_id', 'birth_date'],
-    ['phone', 'address', 'guardian_name', 'guardian_phone'],
-    ['requested_class_id'],
-    ['password', 'confirm_password'],
-];
+const requiredPerStep = (role: ApplicantRole): (keyof FormState)[][] =>
+    role === 'teacher'
+        ? [
+            ['full_name', 'mother_name', 'national_id', 'birth_date'],
+            ['phone', 'address'],
+            ['subjects'],
+            ['password', 'confirm_password'],
+        ]
+        : [
+            ['full_name', 'mother_name', 'national_id', 'birth_date'],
+            ['phone', 'address', 'guardian_name', 'guardian_phone'],
+            ['requested_class_id'],
+            ['password', 'confirm_password'],
+        ];
 
 const Field: React.FC<{
     label: string;
@@ -96,8 +121,11 @@ export const Register: React.FC = () => {
         setError('');
     };
 
+    const isTeacher = form.applicant_role === 'teacher';
+    const STEPS = useMemo(() => stepsFor(form.applicant_role), [form.applicant_role]);
+
     const canAdvance = useMemo(
-        () => REQUIRED_PER_STEP[step].every((key) => String(form[key]).trim().length > 0),
+        () => requiredPerStep(form.applicant_role)[step].every((key) => String(form[key]).trim().length > 0),
         [form, step]
     );
 
@@ -128,7 +156,12 @@ export const Register: React.FC = () => {
         setLoading(true);
         setError('');
         try {
-            const { confirm_password, ...payload } = form;
+            const { confirm_password, subjects, ...rest } = form;
+            const payload = {
+                ...rest,
+                // The API takes a list; the form asks for one comma-separated line.
+                subjects: subjects.split(/[,،]/).map((s) => s.trim()).filter(Boolean),
+            };
             const res = await api.post<{ tracking_code: string }>('/api/register', payload);
             setTrackingCode(res.tracking_code);
         } catch (err) {
@@ -203,7 +236,9 @@ export const Register: React.FC = () => {
             >
                 <div className="flex flex-col items-center mb-6">
                     <img src="/logo.png" alt={t('شعار المدرسة')} className="w-16 h-16 object-contain mb-3" />
-                    <h1 className="text-xl font-black text-slate-800">{t('طلب تسجيل طالب جديد')}</h1>
+                    <h1 className="text-xl font-black text-slate-800">
+                        {isTeacher ? t('طلب تعيين معلم جديد') : t('طلب تسجيل طالب جديد')}
+                    </h1>
                     <p className="text-slate-500 text-xs font-medium mt-1">{t('ثانوية المعالي الأهلية')}</p>
                 </div>
 
@@ -229,10 +264,34 @@ export const Register: React.FC = () => {
                 <form onSubmit={handleSubmit} className="space-y-3.5">
                     {step === 0 && (
                         <>
+                            <div>
+                                <label className="block text-[11px] font-bold text-slate-600 mb-1.5">
+                                    {t('نوع الطلب')} <span className="text-red-500">*</span>
+                                </label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {([
+                                        { key: 'student' as const, label: 'طالب' },
+                                        { key: 'teacher' as const, label: 'معلم' },
+                                    ]).map(({ key, label }) => (
+                                        <button
+                                            key={key}
+                                            type="button"
+                                            onClick={() => { setForm((f) => ({ ...f, applicant_role: key })); setError(''); }}
+                                            className={`py-2.5 rounded-xl text-sm font-black border transition-colors ${
+                                                form.applicant_role === key
+                                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100'
+                                                    : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-200'
+                                            }`}
+                                        >
+                                            {t(label)}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
                             <Field label={t('الاسم الرباعي')} required hint={t('مثال: محمد علي حسين الجبوري')}>
                                 <input className={inputClass} value={form.full_name} onChange={set('full_name')} />
                             </Field>
-                            <Field label={t('اسم الأم الثلاثي')}>
+                            <Field label={t('اسم الأم الثلاثي')} required>
                                 <input className={inputClass} value={form.mother_name} onChange={set('mother_name')} />
                             </Field>
                             <Field label={t('رقم البطاقة الوطنية')} required>
@@ -252,7 +311,7 @@ export const Register: React.FC = () => {
                     {step === 1 && (
                         <>
                             <div className="grid grid-cols-2 gap-3">
-                                <Field label={t('هاتف الطالب')} required>
+                                <Field label={isTeacher ? t('رقم الهاتف') : t('هاتف الطالب')} required>
                                     <input type="tel" dir="ltr" className={inputClass} value={form.phone} onChange={set('phone')} placeholder="07XXXXXXXXX" />
                                 </Field>
                                 <Field label={t('البريد الإلكتروني')}>
@@ -262,27 +321,57 @@ export const Register: React.FC = () => {
                             <Field label={t('عنوان السكن')} required hint={t('المحافظة / المنطقة / أقرب نقطة دالة')}>
                                 <input className={inputClass} value={form.address} onChange={set('address')} />
                             </Field>
-                            <div className="h-px bg-slate-100 my-2" />
-                            <Field label={t('اسم ولي الأمر')} required>
-                                <input className={inputClass} value={form.guardian_name} onChange={set('guardian_name')} />
+                            {!isTeacher && (
+                                <>
+                                    <div className="h-px bg-slate-100 my-2" />
+                                    <Field label={t('اسم ولي الأمر')} required>
+                                        <input className={inputClass} value={form.guardian_name} onChange={set('guardian_name')} />
+                                    </Field>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <Field label={t('هاتف ولي الأمر')} required>
+                                            <input type="tel" dir="ltr" className={inputClass} value={form.guardian_phone} onChange={set('guardian_phone')} placeholder="07XXXXXXXXX" />
+                                        </Field>
+                                        <Field label={t('صلة القرابة')}>
+                                            <select className={inputClass} value={form.guardian_relation} onChange={set('guardian_relation')}>
+                                                {RELATIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                                            </select>
+                                        </Field>
+                                    </div>
+                                    <Field label={t('مهنة ولي الأمر')}>
+                                        <input className={inputClass} value={form.guardian_job} onChange={set('guardian_job')} />
+                                    </Field>
+                                </>
+                            )}
+                        </>
+                    )}
+
+                    {step === 2 && isTeacher && (
+                        <>
+                            <Field
+                                label={t('المواد التي تدرّسها')}
+                                required
+                                hint={t('افصل بين المواد بفاصلة، مثال: رياضيات، فيزياء')}
+                            >
+                                <input className={inputClass} value={form.subjects} onChange={set('subjects')} />
                             </Field>
                             <div className="grid grid-cols-2 gap-3">
-                                <Field label={t('هاتف ولي الأمر')} required>
-                                    <input type="tel" dir="ltr" className={inputClass} value={form.guardian_phone} onChange={set('guardian_phone')} placeholder="07XXXXXXXXX" />
+                                <Field label={t('التحصيل الدراسي')} hint={t('مثال: بكالوريوس رياضيات')}>
+                                    <input className={inputClass} value={form.qualification} onChange={set('qualification')} />
                                 </Field>
-                                <Field label={t('صلة القرابة')}>
-                                    <select className={inputClass} value={form.guardian_relation} onChange={set('guardian_relation')}>
-                                        {RELATIONS.map((r) => <option key={r} value={r}>{r}</option>)}
-                                    </select>
+                                <Field label={t('سنوات الخبرة')}>
+                                    <input className={inputClass} value={form.experience_years} onChange={set('experience_years')} placeholder={t('مثال: 5')} />
                                 </Field>
                             </div>
-                            <Field label={t('مهنة ولي الأمر')}>
-                                <input className={inputClass} value={form.guardian_job} onChange={set('guardian_job')} />
+                            <Field label={t('جهة العمل السابقة')}>
+                                <input className={inputClass} value={form.previous_school} onChange={set('previous_school')} />
+                            </Field>
+                            <Field label={t('ملاحظات إضافية')}>
+                                <textarea rows={2} className={inputClass} value={form.notes} onChange={set('notes')} />
                             </Field>
                         </>
                     )}
 
-                    {step === 2 && (
+                    {step === 2 && !isTeacher && (
                         <>
                             <Field label={t('الصف الدراسي المطلوب')} required>
                                 <select className={inputClass} value={form.requested_class_id} onChange={set('requested_class_id')}>

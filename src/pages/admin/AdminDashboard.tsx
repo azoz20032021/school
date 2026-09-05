@@ -1,15 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Users, BookOpen, Plus, ChevronRight, Trash2, ArrowRight, UserX, Search } from 'lucide-react';
+import { Users, BookOpen, Plus, ChevronRight, Trash2, ArrowRight, UserX, Search, Pencil } from 'lucide-react';
 import { ClassData, UserData } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { api, ApiError } from '../../lib/api';
 import { loadStudentRoster } from '../../components/StudentPicker';
+import { EditUserModal } from '../../components/EditUserModal';
 import { t } from '../../i18n';
 
 
 
 /** How many students to fetch and paint at a time. */
-const STUDENT_PAGE_SIZE = 25;
+const STUDENT_PAGE_SIZE = 20;
 
 export const AdminDashboard: React.FC = () => {
     const { user: currentUser } = useAuth();
@@ -33,6 +34,8 @@ export const AdminDashboard: React.FC = () => {
     const [showAddTeacher, setShowAddTeacher] = useState(false);
     const [newTeacher, setNewTeacher] = useState({ name: '', username: '', password: '' });
     const [viewingTeacher, setViewingTeacher] = useState<UserData | null>(null);
+    /** The account open in the full editor, and which form it needs. */
+    const [editing, setEditing] = useState<{ user: Record<string, any>; kind: 'student' | 'teacher' } | null>(null);
 
     const [showAddAssistant, setShowAddAssistant] = useState(false);
     const [newAssistant, setNewAssistant] = useState({ name: '', username: '', password: '' });
@@ -873,6 +876,13 @@ export const AdminDashboard: React.FC = () => {
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <span className="text-[10px] font-mono bg-slate-100 px-2 py-1 rounded text-slate-600">{s.uid}</span>
+                                            <button
+                                                onClick={() => setEditing({ user: s, kind: 'student' })}
+                                                className="p-1.5 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                                aria-label={t('تعديل بيانات الحساب')}
+                                            >
+                                                <Pencil className="w-3.5 h-3.5" />
+                                            </button>
                                             {canManageStudents && (
                                                 <button
                                                     onClick={() => handleDeleteStudent(s.id)}
@@ -1042,6 +1052,19 @@ export const AdminDashboard: React.FC = () => {
                     </div>
                 </div>
             )}
+            <EditUserModal
+                open={Boolean(editing)}
+                onClose={() => setEditing(null)}
+                user={editing?.user ?? null}
+                kind={editing?.kind ?? 'student'}
+                isAdmin={currentUser?.role === 'admin'}
+                onSaved={() => {
+                    loadStudentRoster(true).catch(() => {});
+                    setViewingTeacher(null);
+                    fetchData();
+                }}
+            />
+
             {/* Teacher Details Modal */}
             {viewingTeacher && (
                 <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
@@ -1056,9 +1079,18 @@ export const AdminDashboard: React.FC = () => {
                                     <p className="text-[10px] font-bold text-indigo-600 lowercase tracking-widest">{viewingTeacher.uid}</p>
                                 </div>
                             </div>
-                            <button onClick={() => setViewingTeacher(null)} className="w-8 h-8 flex items-center justify-center bg-white rounded-xl shadow-sm border border-slate-100 text-slate-400 hover:text-red-500">
-                                <Plus className="w-4 h-4 rotate-45" />
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setEditing({ user: viewingTeacher, kind: 'teacher' })}
+                                    className="w-8 h-8 flex items-center justify-center bg-white rounded-xl shadow-sm border border-slate-100 text-slate-400 hover:text-indigo-600"
+                                    aria-label={t('تعديل بيانات الحساب')}
+                                >
+                                    <Pencil className="w-4 h-4" />
+                                </button>
+                                <button onClick={() => setViewingTeacher(null)} className="w-8 h-8 flex items-center justify-center bg-white rounded-xl shadow-sm border border-slate-100 text-slate-400 hover:text-red-500">
+                                    <Plus className="w-4 h-4 rotate-45" />
+                                </button>
+                            </div>
                         </div>
 
                         <div className="p-6 space-y-6">

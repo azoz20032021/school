@@ -16,7 +16,7 @@ import { t } from '../../i18n';
  * student in the school and paint all of them, which is fine at twenty students
  * and painful at several hundred.
  */
-const STUDENT_PAGE_SIZE = 50;
+const STUDENT_PAGE_SIZE = 20;
 
 const CATEGORIES = ['قسط دراسي', 'رسوم تسجيل', 'كتب وقرطاسية', 'نقل مدرسي', 'زي مدرسي', 'نشاطات', 'أخرى'];
 const METHODS = ['نقدي', 'تحويل بنكي', 'محفظة إلكترونية', 'شيك'];
@@ -90,7 +90,7 @@ export const Finance: React.FC = () => {
     }, [search, classFilter, onlyDebtors]);
 
     const invoicesUrl = useCallback((offset?: string | null) => {
-        const params = new URLSearchParams({ limit: '25' });
+        const params = new URLSearchParams({ limit: String(STUDENT_PAGE_SIZE) });
         if (offset) params.set('after', offset);
         if (classFilter) params.set('class_id', classFilter);
         return `/api/admin/invoices?${params}`;

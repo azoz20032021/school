@@ -16,7 +16,7 @@ const ROLE_LABEL: Record<string, string> = {
     admin: 'مدير النظام',
     assistant_admin: 'مساعد إدارة',
     teacher: 'كادر تعليمي',
-    student: 'طالب علم',
+    student: 'طالب',
 };
 
 const POLL_INTERVAL_MS = 60_000;

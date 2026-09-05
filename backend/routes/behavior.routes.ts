@@ -102,7 +102,7 @@ router.get(
   })
 );
 
-const DEFAULT_PAGE_SIZE = 25;
+const DEFAULT_PAGE_SIZE = 20;
 
 router.get(
   "/class/:classId/behavior",

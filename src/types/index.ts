@@ -127,6 +127,7 @@ export interface StudentFinanceRow {
     student_id: string;
     name: string;
     uid: string;
+    national_id?: string;
     phone: string;
     guardian_phone: string;
     class_id: string | null;

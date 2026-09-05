@@ -20,7 +20,7 @@ export const Layout: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-slate-50 font-sans pb-24">
+        <div className="min-h-screen bg-slate-50 font-sans pb-24 print:min-h-0 print:bg-white print:pb-0">
             <DashboardHeader user={user} onLogout={logout} />
             <main>
                 <Outlet />

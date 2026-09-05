@@ -854,6 +854,7 @@ function invalidate(prefix) {
 // backend/routes/registrations.routes.ts
 var router2 = Router2();
 var RELATIONS = ["\u0627\u0644\u0623\u0628", "\u0627\u0644\u0623\u0645", "\u0627\u0644\u0623\u062E", "\u0627\u0644\u0639\u0645", "\u0627\u0644\u062E\u0627\u0644", "\u0627\u0644\u062C\u062F", "\u0648\u0644\u064A \u0623\u0645\u0631 \u0622\u062E\u0631"];
+var APPLICANT_ROLES = ["student", "teacher"];
 var STATUSES = ["pending", "approved", "rejected"];
 var CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 function makeTrackingCode() {
@@ -882,27 +883,41 @@ router2.post(
   rateLimit({ windowMs: 60 * 60 * 1e3, max: 10, keyPrefix: "register" }),
   wrap(async (req, res) => {
     const b = req.body || {};
+    const applicantRole = oneOf(b.applicant_role, "\u0646\u0648\u0639 \u0627\u0644\u062D\u0633\u0627\u0628", APPLICANT_ROLES, "student");
+    const isTeacher = applicantRole === "teacher";
     const application = {
+      applicant_role: applicantRole,
       full_name: str(b.full_name, "\u0627\u0644\u0627\u0633\u0645 \u0627\u0644\u0631\u0628\u0627\u0639\u064A", { min: 5, max: 120 }),
-      mother_name: str(b.mother_name, "\u0627\u0633\u0645 \u0627\u0644\u0623\u0645", { min: 2, max: 120, optional: true }),
+      // Required for everyone: Iraqi records identify a person by their
+      // mother's name, and the school needs it on every official document.
+      mother_name: str(b.mother_name, "\u0627\u0633\u0645 \u0627\u0644\u0623\u0645", { min: 2, max: 120 }),
       national_id: str(b.national_id, "\u0631\u0642\u0645 \u0627\u0644\u0647\u0648\u064A\u0629 / \u0627\u0644\u0628\u0637\u0627\u0642\u0629 \u0627\u0644\u0648\u0637\u0646\u064A\u0629", { min: 4, max: 40 }),
       birth_date: isoDate(b.birth_date, "\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0645\u064A\u0644\u0627\u062F"),
       birth_place: str(b.birth_place, "\u0645\u062D\u0644 \u0627\u0644\u0648\u0644\u0627\u062F\u0629", { max: 120, optional: true }),
-      phone: phone(b.phone, "\u0631\u0642\u0645 \u0647\u0627\u062A\u0641 \u0627\u0644\u0637\u0627\u0644\u0628"),
+      phone: phone(b.phone, isTeacher ? "\u0631\u0642\u0645 \u0627\u0644\u0647\u0627\u062A\u0641" : "\u0631\u0642\u0645 \u0647\u0627\u062A\u0641 \u0627\u0644\u0637\u0627\u0644\u0628"),
       email: email(b.email, "\u0627\u0644\u0628\u0631\u064A\u062F \u0627\u0644\u0625\u0644\u0643\u062A\u0631\u0648\u0646\u064A", { optional: true }),
       address: str(b.address, "\u0639\u0646\u0648\u0627\u0646 \u0627\u0644\u0633\u0643\u0646", { min: 3, max: 250 }),
-      guardian_name: str(b.guardian_name, "\u0627\u0633\u0645 \u0648\u0644\u064A \u0627\u0644\u0623\u0645\u0631", { min: 3, max: 120 }),
-      guardian_phone: phone(b.guardian_phone, "\u0647\u0627\u062A\u0641 \u0648\u0644\u064A \u0627\u0644\u0623\u0645\u0631"),
-      guardian_relation: oneOf(b.guardian_relation, "\u0635\u0644\u0629 \u0627\u0644\u0642\u0631\u0627\u0628\u0629", RELATIONS, "\u0627\u0644\u0623\u0628"),
-      guardian_job: str(b.guardian_job, "\u0645\u0647\u0646\u0629 \u0648\u0644\u064A \u0627\u0644\u0623\u0645\u0631", { max: 120, optional: true }),
-      previous_school: str(b.previous_school, "\u0627\u0644\u0645\u062F\u0631\u0633\u0629 \u0627\u0644\u0633\u0627\u0628\u0642\u0629", { max: 160, optional: true }),
-      last_grade: str(b.last_grade, "\u0622\u062E\u0631 \u0635\u0641 \u062F\u0631\u0627\u0633\u064A", { max: 80, optional: true }),
-      last_average: str(b.last_average, "\u0627\u0644\u0645\u0639\u062F\u0644 \u0627\u0644\u0633\u0627\u0628\u0642", { max: 20, optional: true }),
+      // A teacher has no guardian; the fields stay on the document as empty
+      // strings so every application has the same shape.
+      guardian_name: isTeacher ? "" : str(b.guardian_name, "\u0627\u0633\u0645 \u0648\u0644\u064A \u0627\u0644\u0623\u0645\u0631", { min: 3, max: 120 }),
+      guardian_phone: isTeacher ? "" : phone(b.guardian_phone, "\u0647\u0627\u062A\u0641 \u0648\u0644\u064A \u0627\u0644\u0623\u0645\u0631"),
+      guardian_relation: isTeacher ? "" : oneOf(b.guardian_relation, "\u0635\u0644\u0629 \u0627\u0644\u0642\u0631\u0627\u0628\u0629", RELATIONS, "\u0627\u0644\u0623\u0628"),
+      guardian_job: isTeacher ? "" : str(b.guardian_job, "\u0645\u0647\u0646\u0629 \u0648\u0644\u064A \u0627\u0644\u0623\u0645\u0631", { max: 120, optional: true }),
+      previous_school: str(b.previous_school, isTeacher ? "\u062C\u0647\u0629 \u0627\u0644\u0639\u0645\u0644 \u0627\u0644\u0633\u0627\u0628\u0642\u0629" : "\u0627\u0644\u0645\u062F\u0631\u0633\u0629 \u0627\u0644\u0633\u0627\u0628\u0642\u0629", {
+        max: 160,
+        optional: true
+      }),
+      last_grade: isTeacher ? "" : str(b.last_grade, "\u0622\u062E\u0631 \u0635\u0641 \u062F\u0631\u0627\u0633\u064A", { max: 80, optional: true }),
+      last_average: isTeacher ? "" : str(b.last_average, "\u0627\u0644\u0645\u0639\u062F\u0644 \u0627\u0644\u0633\u0627\u0628\u0642", { max: 20, optional: true }),
       health_notes: str(b.health_notes, "\u0645\u0644\u0627\u062D\u0638\u0627\u062A \u0635\u062D\u064A\u0629", { max: 600, optional: true }),
-      notes: str(b.notes, "\u0645\u0644\u0627\u062D\u0638\u0627\u062A \u0625\u0636\u0627\u0641\u064A\u0629", { max: 600, optional: true })
+      notes: str(b.notes, "\u0645\u0644\u0627\u062D\u0638\u0627\u062A \u0625\u0636\u0627\u0641\u064A\u0629", { max: 600, optional: true }),
+      // Teacher-only.
+      subjects: isTeacher ? stringArray(b.subjects, "\u0627\u0644\u0645\u0648\u0627\u062F", { max: 20 }) : [],
+      qualification: isTeacher ? str(b.qualification, "\u0627\u0644\u062A\u062D\u0635\u064A\u0644 \u0627\u0644\u062F\u0631\u0627\u0633\u064A", { max: 120, optional: true }) : "",
+      experience_years: isTeacher ? str(b.experience_years, "\u0633\u0646\u0648\u0627\u062A \u0627\u0644\u062E\u0628\u0631\u0629", { max: 10, optional: true }) : ""
     };
     const plainPassword = password(b.password);
-    const requestedClassId = str(b.requested_class_id, "\u0627\u0644\u0635\u0641 \u0627\u0644\u0645\u0637\u0644\u0648\u0628", { max: 64, optional: true });
+    const requestedClassId = isTeacher ? "" : str(b.requested_class_id, "\u0627\u0644\u0635\u0641 \u0627\u0644\u0645\u0637\u0644\u0648\u0628", { max: 64, optional: true });
     const [dupApplication, dupUser] = await Promise.all([
       getDocs3(
         query3(registrationsRef, where3("national_id", "==", application.national_id), fsLimit2(5))
@@ -938,7 +953,7 @@ router2.post(
       action: "create",
       entity: "registration",
       entityId: created.id,
-      summary: `\u0637\u0644\u0628 \u062A\u0633\u062C\u064A\u0644 \u062C\u062F\u064A\u062F \u0628\u0627\u0633\u0645 ${application.full_name}`
+      summary: `\u0637\u0644\u0628 ${isTeacher ? "\u062A\u0639\u064A\u064A\u0646 \u0645\u0639\u0644\u0645" : "\u062A\u0633\u062C\u064A\u0644 \u0637\u0627\u0644\u0628"} \u062C\u062F\u064A\u062F \u0628\u0627\u0633\u0645 ${application.full_name}`
     });
     res.status(201).json({
       success: true,
@@ -967,7 +982,7 @@ router2.get(
     });
   })
 );
-var DEFAULT_PAGE_SIZE = 25;
+var DEFAULT_PAGE_SIZE = 20;
 router2.get(
   "/admin/registrations",
   requireStaff,
@@ -997,6 +1012,58 @@ router2.get(
     res.json({ id: snap.id, ...safe });
   })
 );
+async function approveTeacher(req, res, registrationDoc, registrationId, data) {
+  const uid = `TCH${Date.now().toString(36).toUpperCase().slice(-6)}`;
+  const subjects = Array.isArray(data.subjects) ? data.subjects : [];
+  const newUser = await addDoc2(usersRef, {
+    name: data.full_name,
+    username: uid,
+    uid,
+    password: data.password,
+    // already hashed at submission time
+    role: "teacher",
+    status: "active",
+    mother_name: data.mother_name || "",
+    national_id: data.national_id,
+    birth_date: data.birth_date,
+    birth_place: data.birth_place || "",
+    phone: data.phone,
+    email: data.email || "",
+    address: data.address,
+    subjects,
+    qualification: data.qualification || "",
+    experience_years: data.experience_years || "",
+    previous_school: data.previous_school || "",
+    registration_id: registrationId,
+    approved_by: req.user.id,
+    approved_by_name: req.user.name,
+    createdAt: serverTimestamp3()
+  });
+  await updateDoc2(registrationDoc, {
+    status: "approved",
+    assigned_uid: uid,
+    created_user_id: newUser.id,
+    reviewed_by: req.user.id,
+    reviewed_by_name: req.user.name,
+    reviewed_at: serverTimestamp3()
+  });
+  await addDoc2(notificationsRef, {
+    user_id: newUser.id,
+    title: "\u062A\u0645\u062A \u0627\u0644\u0645\u0648\u0627\u0641\u0642\u0629 \u0639\u0644\u0649 \u0637\u0644\u0628\u0643",
+    message: `\u0623\u0647\u0644\u0627\u064B \u0628\u0643 ${data.full_name}. \u0631\u0642\u0645\u0643 \u0627\u0644\u062A\u0639\u0631\u064A\u0641\u064A \u0644\u0644\u062F\u062E\u0648\u0644 \u0647\u0648: ${uid}.`,
+    type: "registration",
+    isRead: false,
+    createdAt: serverTimestamp3()
+  });
+  invalidate("teachers");
+  audit(req, {
+    action: "approve",
+    entity: "registration",
+    entityId: registrationId,
+    summary: `\u0642\u0628\u0648\u0644 \u0627\u0644\u0645\u0639\u0644\u0645 ${data.full_name} \u0628\u0631\u0642\u0645 ${uid}`
+  });
+  return res.json({ success: true, uid, user_id: newUser.id, role: "teacher" });
+}
 router2.post(
   "/admin/registrations/:id/approve",
   requireStaff,
@@ -1007,6 +1074,9 @@ router2.post(
     const data = snap.data();
     if (data.status !== "pending") {
       throw badRequest(`\u062A\u0645\u062A \u0645\u0639\u0627\u0644\u062C\u0629 \u0647\u0630\u0627 \u0627\u0644\u0637\u0644\u0628 \u0645\u0633\u0628\u0642\u0627\u064B (\u0627\u0644\u062D\u0627\u0644\u0629 \u0627\u0644\u062D\u0627\u0644\u064A\u0629: ${data.status})`);
+    }
+    if (data.applicant_role === "teacher") {
+      return approveTeacher(req, res, registrationDoc, snap.id, data);
     }
     const classId = str(req.body?.class_id ?? data.requested_class_id, "\u0627\u0644\u0635\u0641", {
       max: 64,
@@ -1218,7 +1288,7 @@ function paginate(rows, offset, pageSize) {
 // backend/routes/admin.routes.ts
 var router3 = Router3();
 var BATCH_LIMIT = 450;
-var DEFAULT_PAGE_SIZE2 = 25;
+var DEFAULT_PAGE_SIZE2 = 20;
 router3.get(
   "/admin/students",
   requireStaff,
@@ -1322,11 +1392,31 @@ router3.put(
       ["address", () => str(b.address, "\u0627\u0644\u0639\u0646\u0648\u0627\u0646", { max: 250, optional: true })],
       ["guardian_name", () => str(b.guardian_name, "\u0627\u0633\u0645 \u0648\u0644\u064A \u0627\u0644\u0623\u0645\u0631", { max: 120, optional: true })],
       ["guardian_phone", () => phone(b.guardian_phone, "\u0647\u0627\u062A\u0641 \u0648\u0644\u064A \u0627\u0644\u0623\u0645\u0631", { optional: true })],
+      ["guardian_relation", () => str(b.guardian_relation, "\u0635\u0644\u0629 \u0627\u0644\u0642\u0631\u0627\u0628\u0629", { max: 60, optional: true })],
+      ["guardian_job", () => str(b.guardian_job, "\u0645\u0647\u0646\u0629 \u0648\u0644\u064A \u0627\u0644\u0623\u0645\u0631", { max: 120, optional: true })],
       ["health_notes", () => str(b.health_notes, "\u0645\u0644\u0627\u062D\u0638\u0627\u062A \u0635\u062D\u064A\u0629", { max: 600, optional: true })],
       ["status", () => oneOf(b.status, "\u062D\u0627\u0644\u0629 \u0627\u0644\u062D\u0633\u0627\u0628", ["active", "suspended"])]
     ];
-    for (const [key, parse] of editable) {
+    const adminOnly = [
+      ["mother_name", () => str(b.mother_name, "\u0627\u0633\u0645 \u0627\u0644\u0623\u0645", { max: 120, optional: true })],
+      ["national_id", () => str(b.national_id, "\u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u0648\u0637\u0646\u064A", { max: 40, optional: true })],
+      ["birth_date", () => isoDate(b.birth_date, "\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0645\u064A\u0644\u0627\u062F", { optional: true })],
+      ["birth_place", () => str(b.birth_place, "\u0645\u062D\u0644 \u0627\u0644\u0648\u0644\u0627\u062F\u0629", { max: 120, optional: true })],
+      ["previous_school", () => str(b.previous_school, "\u0627\u0644\u0645\u062F\u0631\u0633\u0629 \u0627\u0644\u0633\u0627\u0628\u0642\u0629", { max: 160, optional: true })],
+      ["notes", () => str(b.notes, "\u0645\u0644\u0627\u062D\u0638\u0627\u062A", { max: 600, optional: true })]
+    ];
+    const isFullAdmin = req.user.role === "admin";
+    for (const [key, parse] of [...editable, ...isFullAdmin ? adminOnly : []]) {
       if (b[key] !== void 0) patch[key] = parse();
+    }
+    if (isFullAdmin && b.uid !== void 0) {
+      const uid = str(b.uid, "\u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u062A\u0639\u0631\u064A\u0641\u064A", { min: 3, max: 64 });
+      if (uid !== snap.data().uid) {
+        const clash = await getDocs4(query5(usersRef, where5("uid", "==", uid), fsLimit3(1)));
+        if (!clash.empty) throw badRequest("\u0647\u0630\u0627 \u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u062A\u0639\u0631\u064A\u0641\u064A \u0645\u0633\u062A\u062E\u062F\u0645 \u0628\u0627\u0644\u0641\u0639\u0644");
+        patch.uid = uid;
+        patch.username = uid;
+      }
     }
     if (Object.keys(patch).length === 0) throw badRequest("\u0644\u0627 \u062A\u0648\u062C\u062F \u0628\u064A\u0627\u0646\u0627\u062A \u0644\u0644\u062A\u062D\u062F\u064A\u062B");
     patch.updatedAt = serverTimestamp4();
@@ -1418,12 +1508,32 @@ router3.put(
     const target = doc3(db, "users", req.params.id);
     const snap = await getDoc3(target);
     if (!snap.exists()) throw notFound("\u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
+    const b = req.body || {};
     const patch = {};
-    if (req.body?.name !== void 0) patch.name = str(req.body.name, "\u0627\u0644\u0627\u0633\u0645", { min: 3, max: 120 });
-    if (req.body?.subjects !== void 0) patch.subjects = stringArray(req.body.subjects, "\u0627\u0644\u0645\u0648\u0627\u062F", { max: 40 });
-    if (req.body?.phone !== void 0) patch.phone = phone(req.body.phone, "\u0631\u0642\u0645 \u0627\u0644\u0647\u0627\u062A\u0641", { optional: true });
-    if (req.body?.status !== void 0) {
-      patch.status = oneOf(req.body.status, "\u062D\u0627\u0644\u0629 \u0627\u0644\u062D\u0633\u0627\u0628", ["active", "suspended"]);
+    const editable = [
+      ["name", () => str(b.name, "\u0627\u0644\u0627\u0633\u0645", { min: 3, max: 120 })],
+      ["subjects", () => stringArray(b.subjects, "\u0627\u0644\u0645\u0648\u0627\u062F", { max: 40 })],
+      ["phone", () => phone(b.phone, "\u0631\u0642\u0645 \u0627\u0644\u0647\u0627\u062A\u0641", { optional: true })],
+      ["email", () => email(b.email, "\u0627\u0644\u0628\u0631\u064A\u062F \u0627\u0644\u0625\u0644\u0643\u062A\u0631\u0648\u0646\u064A", { optional: true })],
+      ["address", () => str(b.address, "\u0627\u0644\u0639\u0646\u0648\u0627\u0646", { max: 250, optional: true })],
+      ["mother_name", () => str(b.mother_name, "\u0627\u0633\u0645 \u0627\u0644\u0623\u0645", { max: 120, optional: true })],
+      ["national_id", () => str(b.national_id, "\u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u0648\u0637\u0646\u064A", { max: 40, optional: true })],
+      ["birth_date", () => isoDate(b.birth_date, "\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0645\u064A\u0644\u0627\u062F", { optional: true })],
+      ["qualification", () => str(b.qualification, "\u0627\u0644\u062A\u062D\u0635\u064A\u0644 \u0627\u0644\u062F\u0631\u0627\u0633\u064A", { max: 120, optional: true })],
+      ["experience_years", () => str(b.experience_years, "\u0633\u0646\u0648\u0627\u062A \u0627\u0644\u062E\u0628\u0631\u0629", { max: 10, optional: true })],
+      ["status", () => oneOf(b.status, "\u062D\u0627\u0644\u0629 \u0627\u0644\u062D\u0633\u0627\u0628", ["active", "suspended"])]
+    ];
+    for (const [key, parse] of editable) {
+      if (b[key] !== void 0) patch[key] = parse();
+    }
+    if (b.uid !== void 0) {
+      const uid = str(b.uid, "\u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u062A\u0639\u0631\u064A\u0641\u064A", { min: 3, max: 64 });
+      if (uid !== snap.data().uid) {
+        const clash = await getDocs4(query5(usersRef, where5("uid", "==", uid), fsLimit3(1)));
+        if (!clash.empty) throw badRequest("\u0647\u0630\u0627 \u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u062A\u0639\u0631\u064A\u0641\u064A \u0645\u0633\u062A\u062E\u062F\u0645 \u0628\u0627\u0644\u0641\u0639\u0644");
+        patch.uid = uid;
+        patch.username = uid;
+      }
     }
     if (Object.keys(patch).length === 0) throw badRequest("\u0644\u0627 \u062A\u0648\u062C\u062F \u0628\u064A\u0627\u0646\u0627\u062A \u0644\u0644\u062A\u062D\u062F\u064A\u062B");
     patch.updatedAt = serverTimestamp4();
@@ -1693,7 +1803,7 @@ var CATEGORIES = ["\u0642\u0633\u0637 \u062F\u0631\u0627\u0633\u064A", "\u0631\u
 var METHODS = ["\u0646\u0642\u062F\u064A", "\u062A\u062D\u0648\u064A\u0644 \u0628\u0646\u0643\u064A", "\u0645\u062D\u0641\u0638\u0629 \u0625\u0644\u0643\u062A\u0631\u0648\u0646\u064A\u0629", "\u0634\u064A\u0643"];
 var INVOICE_STATUSES = ["unpaid", "partial", "paid", "cancelled"];
 var BATCH_LIMIT2 = 450;
-var DEFAULT_PAGE_SIZE3 = 25;
+var DEFAULT_PAGE_SIZE3 = 20;
 var FINANCE_TTL_MS = 3e4;
 function netAmount(inv) {
   return Math.max(0, Number(inv.amount || 0) - Number(inv.discount || 0));
@@ -2098,6 +2208,7 @@ router4.get(
         student_id: s.id,
         name: s.name,
         uid: s.uid,
+        national_id: s.national_id || "",
         phone: s.phone || "",
         guardian_phone: s.guardian_phone || "",
         class_id: s.class_id,
@@ -2481,7 +2592,7 @@ import {
 var router7 = Router7();
 var CATEGORIES2 = ["\u064A\u0648\u0645\u064A", "\u0634\u0647\u0631\u064A", "\u0648\u0627\u062C\u0628", "\u0645\u0634\u0627\u0631\u0643\u0629", "\u0646\u0635\u0641 \u0627\u0644\u0641\u0635\u0644", "\u0646\u0647\u0627\u0626\u064A", "\u0627\u0645\u062A\u062D\u0627\u0646"];
 var SEMESTERS = ["\u0627\u0644\u0641\u0635\u0644 \u0627\u0644\u0623\u0648\u0644", "\u0627\u0644\u0641\u0635\u0644 \u0627\u0644\u062B\u0627\u0646\u064A", "\u0627\u0644\u0641\u0635\u0644 \u0627\u0644\u062B\u0627\u0644\u062B"];
-var DEFAULT_PAGE_SIZE4 = 25;
+var DEFAULT_PAGE_SIZE4 = 20;
 async function assertMaySetGrade(req, subject) {
   const role = req.user.role;
   if (role === "admin") return;
@@ -2904,7 +3015,7 @@ router10.get(
     });
   })
 );
-var DEFAULT_PAGE_SIZE5 = 25;
+var DEFAULT_PAGE_SIZE5 = 20;
 router10.get(
   "/class/:classId/behavior",
   requireAuth,

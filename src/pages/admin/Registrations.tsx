@@ -77,6 +77,9 @@ export const Registrations: React.FC = () => {
     useEffect(() => { load(tab); }, [tab, load]);
     useEffect(() => { api.get<ClassData[]>('/api/classes').then(setClasses).catch(() => {}); }, []);
 
+    /** Teacher applications skip the class and the tuition instalment. */
+    const isTeacherApplication = (viewing as any)?.applicant_role === 'teacher';
+
     const openDetails = (row: Registration) => {
         setViewing(row);
         setMode('view');
@@ -88,14 +91,15 @@ export const Registrations: React.FC = () => {
 
     const approve = async () => {
         if (!viewing) return;
-        if (!decisionClass) { setError(t('يرجى تحديد الصف الدراسي')); return; }
+        const teacherApplication = (viewing as any).applicant_role === 'teacher';
+        if (!teacherApplication && !decisionClass) { setError(t('يرجى تحديد الصف الدراسي')); return; }
 
         setBusy(true);
         setError('');
         try {
             const res = await api.post<{ uid: string }>(`/api/admin/registrations/${viewing.id}/approve`, {
-                class_id: decisionClass,
-                initial_fee_amount: initialFee ? Number(initialFee) : 0,
+                class_id: teacherApplication ? undefined : decisionClass,
+                initial_fee_amount: teacherApplication || !initialFee ? 0 : Number(initialFee),
             });
             setViewing(null);
             // The new account has to appear in the student pickers straight away.
@@ -175,9 +179,14 @@ export const Registrations: React.FC = () => {
                                     <div className="flex items-center gap-2">
                                         <p className="font-black text-slate-800 text-sm truncate">{row.full_name}</p>
                                         <Badge tone={STATUS_BADGE[row.status].tone}>{t(STATUS_BADGE[row.status].label)}</Badge>
+                                        {(row as any).applicant_role === 'teacher' && (
+                                            <Badge tone="indigo">{t('معلم')}</Badge>
+                                        )}
                                     </div>
                                     <p className="text-[11px] text-slate-400 font-medium mt-0.5 truncate">
-                                        {row.requested_class_name || t('بدون صف محدد')} · {row.tracking_code} · {formatDateTime(row.createdAt)}
+                                        {(row as any).applicant_role === 'teacher'
+                                            ? ((row as any).subjects?.join('، ') || t('بدون مواد محددة'))
+                                            : (row.requested_class_name || t('بدون صف محدد'))} · {row.tracking_code} · {formatDateTime(row.createdAt)}
                                     </p>
                                 </div>
                                 <Eye className="w-4 h-4 text-slate-300 shrink-0" />
@@ -211,7 +220,12 @@ export const Registrations: React.FC = () => {
 
                         <div className="grid md:grid-cols-2 gap-x-6">
                             <div>
-                                <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">{t('البيانات الشخصية')}</p>
+                                <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">
+                                    {t('البيانات الشخصية')}
+                                    <span className="mr-2 bg-slate-100 text-slate-600 rounded-full px-2 py-0.5 tracking-normal">
+                                        {isTeacherApplication ? t('طلب معلم') : t('طلب طالب')}
+                                    </span>
+                                </p>
                                 <DetailRow label={t('الاسم الرباعي')} value={viewing.full_name} />
                                 <DetailRow label={t('اسم الأم')} value={viewing.mother_name} />
                                 <DetailRow label={t('رقم البطاقة')} value={viewing.national_id} />
@@ -219,50 +233,75 @@ export const Registrations: React.FC = () => {
                                 <DetailRow label={t('محل الولادة')} value={viewing.birth_place} />
                             </div>
                             <div>
-                                <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1 mt-4 md:mt-0">{t('التواصل وولي الأمر')}</p>
-                                <DetailRow label={t('هاتف الطالب')} value={viewing.phone} />
+                                <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1 mt-4 md:mt-0">
+                                    {isTeacherApplication ? t('معلومات التواصل') : t('التواصل وولي الأمر')}
+                                </p>
+                                <DetailRow label={isTeacherApplication ? t('رقم الهاتف') : t('هاتف الطالب')} value={viewing.phone} />
                                 <DetailRow label={t('البريد')} value={viewing.email} />
                                 <DetailRow label={t('العنوان')} value={viewing.address} />
-                                <DetailRow label={t('ولي الأمر')} value={viewing.guardian_name} />
-                                <DetailRow label={t('هاتف ولي الأمر')} value={viewing.guardian_phone} />
-                                <DetailRow label={t('صلة القرابة')} value={viewing.guardian_relation} />
-                                <DetailRow label={t('مهنة ولي الأمر')} value={viewing.guardian_job} />
+                                {!isTeacherApplication && (
+                                    <>
+                                        <DetailRow label={t('ولي الأمر')} value={viewing.guardian_name} />
+                                        <DetailRow label={t('هاتف ولي الأمر')} value={viewing.guardian_phone} />
+                                        <DetailRow label={t('صلة القرابة')} value={viewing.guardian_relation} />
+                                        <DetailRow label={t('مهنة ولي الأمر')} value={viewing.guardian_job} />
+                                    </>
+                                )}
                             </div>
                         </div>
 
-                        <div>
-                            <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">{t('المعلومات الدراسية')}</p>
-                            <DetailRow label={t('الصف المطلوب')} value={viewing.requested_class_name} />
-                            <DetailRow label={t('المدرسة السابقة')} value={viewing.previous_school} />
-                            <DetailRow label={t('آخر صف')} value={viewing.last_grade} />
-                            <DetailRow label={t('المعدل السابق')} value={viewing.last_average} />
-                            <DetailRow label={t('ملاحظات صحية')} value={viewing.health_notes} />
-                            <DetailRow label={t('ملاحظات إضافية')} value={viewing.notes} />
-                        </div>
+                        {isTeacherApplication ? (
+                            <div>
+                                <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">{t('المعلومات المهنية')}</p>
+                                <DetailRow label={t('المواد')} value={(viewing as any).subjects?.join('، ')} />
+                                <DetailRow label={t('التحصيل الدراسي')} value={(viewing as any).qualification} />
+                                <DetailRow label={t('سنوات الخبرة')} value={(viewing as any).experience_years} />
+                                <DetailRow label={t('جهة العمل السابقة')} value={viewing.previous_school} />
+                                <DetailRow label={t('ملاحظات إضافية')} value={viewing.notes} />
+                            </div>
+                        ) : (
+                            <div>
+                                <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">{t('المعلومات الدراسية')}</p>
+                                <DetailRow label={t('الصف المطلوب')} value={viewing.requested_class_name} />
+                                <DetailRow label={t('المدرسة السابقة')} value={viewing.previous_school} />
+                                <DetailRow label={t('آخر صف')} value={viewing.last_grade} />
+                                <DetailRow label={t('المعدل السابق')} value={viewing.last_average} />
+                                <DetailRow label={t('ملاحظات صحية')} value={viewing.health_notes} />
+                                <DetailRow label={t('ملاحظات إضافية')} value={viewing.notes} />
+                            </div>
+                        )}
 
                         {viewing.status === 'pending' && mode === 'view' && (
                             <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
-                                <div>
-                                    <label className={labelClass}>{t('الصف الذي سيُسجَّل فيه')} <span className="text-red-500">*</span></label>
-                                    <select className={inputClass} value={decisionClass} onChange={(e) => setDecisionClass(e.target.value)}>
-                                        <option value="">{t('-- اختر الصف --')}</option>
-                                        {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className={labelClass}>{t('القسط الدراسي الأولي (اختياري)')}</label>
-                                    <input
-                                        type="number"
-                                        min={0}
-                                        className={inputClass}
-                                        value={initialFee}
-                                        onChange={(e) => setInitialFee(e.target.value)}
-                                        placeholder={t('مثال: 750000')}
-                                    />
-                                    <p className="text-[10px] text-slate-400 mt-1">
-                                        {t('عند إدخال مبلغ سيتم إصدار سند رسوم للطالب مباشرة بعد الموافقة')}
+                                {isTeacherApplication ? (
+                                    <p className="text-[11px] font-bold text-slate-500 leading-relaxed">
+                                        {t('عند الموافقة سيُنشأ حساب معلم برقم تعريفي جديد، ويمكنك بعدها تعيينه على الصفوف من لوحة الإدارة.')}
                                     </p>
-                                </div>
+                                ) : (
+                                    <>
+                                        <div>
+                                            <label className={labelClass}>{t('الصف الذي سيُسجَّل فيه')} <span className="text-red-500">*</span></label>
+                                            <select className={inputClass} value={decisionClass} onChange={(e) => setDecisionClass(e.target.value)}>
+                                                <option value="">{t('-- اختر الصف --')}</option>
+                                                {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className={labelClass}>{t('القسط الدراسي الأولي (اختياري)')}</label>
+                                            <input
+                                                type="number"
+                                                min={0}
+                                                className={inputClass}
+                                                value={initialFee}
+                                                onChange={(e) => setInitialFee(e.target.value)}
+                                                placeholder={t('مثال: 750000')}
+                                            />
+                                            <p className="text-[10px] text-slate-400 mt-1">
+                                                {t('عند إدخال مبلغ سيتم إصدار سند رسوم للطالب مباشرة بعد الموافقة')}
+                                            </p>
+                                        </div>
+                                    </>
+                                )}
 
                                 <div className="flex gap-2 pt-1">
                                     <button

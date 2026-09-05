@@ -35,7 +35,7 @@ import * as v from "../lib/validate.js";
 const router = Router();
 
 const BATCH_LIMIT = 450;
-const DEFAULT_PAGE_SIZE = 25;
+const DEFAULT_PAGE_SIZE = 20;
 
 /* ------------------------------------------------------------------ *
  * Staff directory
@@ -173,6 +173,14 @@ router.put(
 
     const b = req.body || {};
     const patch: Record<string, any> = {};
+
+    /**
+     * Contact details are day-to-day corrections, so any staff member may make
+     * them. Identity — the national ID, the date of birth, the login number —
+     * is what the school's paperwork is built on, so only a full admin can
+     * touch it. The admin can change anything on the record; that is the point
+     * of the role.
+     */
     const editable: [string, () => any][] = [
       ["name", () => v.str(b.name, "الاسم", { min: 3, max: 120 })],
       ["phone", () => v.phone(b.phone, "رقم الهاتف", { optional: true })],
@@ -180,12 +188,37 @@ router.put(
       ["address", () => v.str(b.address, "العنوان", { max: 250, optional: true })],
       ["guardian_name", () => v.str(b.guardian_name, "اسم ولي الأمر", { max: 120, optional: true })],
       ["guardian_phone", () => v.phone(b.guardian_phone, "هاتف ولي الأمر", { optional: true })],
+      ["guardian_relation", () => v.str(b.guardian_relation, "صلة القرابة", { max: 60, optional: true })],
+      ["guardian_job", () => v.str(b.guardian_job, "مهنة ولي الأمر", { max: 120, optional: true })],
       ["health_notes", () => v.str(b.health_notes, "ملاحظات صحية", { max: 600, optional: true })],
       ["status", () => v.oneOf(b.status, "حالة الحساب", ["active", "suspended"] as const)],
     ];
-    for (const [key, parse] of editable) {
+
+    const adminOnly: [string, () => any][] = [
+      ["mother_name", () => v.str(b.mother_name, "اسم الأم", { max: 120, optional: true })],
+      ["national_id", () => v.str(b.national_id, "الرقم الوطني", { max: 40, optional: true })],
+      ["birth_date", () => v.isoDate(b.birth_date, "تاريخ الميلاد", { optional: true })],
+      ["birth_place", () => v.str(b.birth_place, "محل الولادة", { max: 120, optional: true })],
+      ["previous_school", () => v.str(b.previous_school, "المدرسة السابقة", { max: 160, optional: true })],
+      ["notes", () => v.str(b.notes, "ملاحظات", { max: 600, optional: true })],
+    ];
+
+    const isFullAdmin = req.user!.role === "admin";
+    for (const [key, parse] of [...editable, ...(isFullAdmin ? adminOnly : [])]) {
       if (b[key] !== undefined) patch[key] = parse();
     }
+
+    // The identifying number doubles as the username, so it has to stay unique.
+    if (isFullAdmin && b.uid !== undefined) {
+      const uid = v.str(b.uid, "الرقم التعريفي", { min: 3, max: 64 });
+      if (uid !== snap.data().uid) {
+        const clash = await getDocs(query(usersRef, where("uid", "==", uid), fsLimit(1)));
+        if (!clash.empty) throw badRequest("هذا الرقم التعريفي مستخدم بالفعل");
+        patch.uid = uid;
+        patch.username = uid;
+      }
+    }
+
     if (Object.keys(patch).length === 0) throw badRequest("لا توجد بيانات للتحديث");
 
     patch.updatedAt = serverTimestamp();
@@ -300,13 +333,36 @@ router.put(
     const snap = await getDoc(target);
     if (!snap.exists()) throw notFound("المستخدم غير موجود");
 
+    const b = req.body || {};
     const patch: Record<string, any> = {};
-    if (req.body?.name !== undefined) patch.name = v.str(req.body.name, "الاسم", { min: 3, max: 120 });
-    if (req.body?.subjects !== undefined) patch.subjects = v.stringArray(req.body.subjects, "المواد", { max: 40 });
-    if (req.body?.phone !== undefined) patch.phone = v.phone(req.body.phone, "رقم الهاتف", { optional: true });
-    if (req.body?.status !== undefined) {
-      patch.status = v.oneOf(req.body.status, "حالة الحساب", ["active", "suspended"] as const);
+
+    const editable: [string, () => any][] = [
+      ["name", () => v.str(b.name, "الاسم", { min: 3, max: 120 })],
+      ["subjects", () => v.stringArray(b.subjects, "المواد", { max: 40 })],
+      ["phone", () => v.phone(b.phone, "رقم الهاتف", { optional: true })],
+      ["email", () => v.email(b.email, "البريد الإلكتروني", { optional: true })],
+      ["address", () => v.str(b.address, "العنوان", { max: 250, optional: true })],
+      ["mother_name", () => v.str(b.mother_name, "اسم الأم", { max: 120, optional: true })],
+      ["national_id", () => v.str(b.national_id, "الرقم الوطني", { max: 40, optional: true })],
+      ["birth_date", () => v.isoDate(b.birth_date, "تاريخ الميلاد", { optional: true })],
+      ["qualification", () => v.str(b.qualification, "التحصيل الدراسي", { max: 120, optional: true })],
+      ["experience_years", () => v.str(b.experience_years, "سنوات الخبرة", { max: 10, optional: true })],
+      ["status", () => v.oneOf(b.status, "حالة الحساب", ["active", "suspended"] as const)],
+    ];
+    for (const [key, parse] of editable) {
+      if (b[key] !== undefined) patch[key] = parse();
     }
+
+    if (b.uid !== undefined) {
+      const uid = v.str(b.uid, "الرقم التعريفي", { min: 3, max: 64 });
+      if (uid !== snap.data().uid) {
+        const clash = await getDocs(query(usersRef, where("uid", "==", uid), fsLimit(1)));
+        if (!clash.empty) throw badRequest("هذا الرقم التعريفي مستخدم بالفعل");
+        patch.uid = uid;
+        patch.username = uid;
+      }
+    }
+
     if (Object.keys(patch).length === 0) throw badRequest("لا توجد بيانات للتحديث");
 
     patch.updatedAt = serverTimestamp();
@@ -414,6 +470,9 @@ router.post(
 
 /* ------------------------------------------------------------------ *
  * Password reset (admin-initiated)
+ *
+ * The admin sets any account's password directly — theirs is the account that
+ * answers when a parent turns up at the office having forgotten it.
  * ------------------------------------------------------------------ */
 
 router.post(
