@@ -677,7 +677,7 @@ export const en: Record<string, string> = {
   "عليه {count} سند متأخر بقيمة {amount}": "{count} overdue invoice(s) totalling {amount}",
   "سند": "invoice",
   "دفعة": "payment",
-  "هذا الكشف صادر عن إدارة المدرسة ولا يُعتد به إلا مختوماً وموقّعاً.": "This statement is issued by the school administration and is valid only when stamped and signed.",
+  "هذا الكشف صادر عن إدارة المدرسة ولا يؤخذ به إلا مختوماً وموقّعاً.": "This statement is issued by the school administration and is valid only when stamped and signed.",
   "معدل الصف": "Class average",
   "طالب عليه مستحقات": "students with dues",
   "إجمالي المتبقي": "Total outstanding",

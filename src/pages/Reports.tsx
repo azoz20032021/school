@@ -104,24 +104,19 @@ const IdentityTable: React.FC<{ rows: [string, string][] }> = ({ rows }) => (
 );
 
 /**
- * Only two people ever sign one of these: the accountant, on anything about
- * money, and the administration, on everything. The stamp box sits between
- * them.
+ * One signature and the stamp. Anything about money is the accountant's to
+ * sign; everything else is the administration's. No document carries both.
  */
 const SignatureBlock: React.FC<{ finance?: boolean }> = ({ finance }) => (
-    <div className={`grid ${finance ? 'grid-cols-3' : 'grid-cols-2'} gap-4 mt-6 pt-4 border-t border-slate-200 text-center print-block`}>
-        {finance && (
-            <div>
-                <p className="text-[11px] font-black text-slate-700">{t('توقيع المحاسب')}</p>
-                <div className="h-14 border-b border-slate-400 mt-1" />
-            </div>
-        )}
+    <div className="grid grid-cols-2 gap-4 mt-6 pt-4 border-t border-slate-200 text-center print-block">
         <div>
             <p className="text-[11px] font-black text-slate-700">{t('ختم المدرسة')}</p>
             <div className="h-14 mt-1 border border-dashed border-slate-300 rounded-lg" />
         </div>
         <div>
-            <p className="text-[11px] font-black text-slate-700">{t('توقيع الإدارة')}</p>
+            <p className="text-[11px] font-black text-slate-700">
+                {finance ? t('توقيع المحاسب') : t('توقيع الإدارة')}
+            </p>
             <div className="h-14 border-b border-slate-400 mt-1" />
         </div>
     </div>
@@ -547,7 +542,7 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                     </Block>
 
                     <p className="text-[10px] text-slate-500 font-bold border-t border-slate-200 pt-2 print-block">
-                        {t('هذا الكشف صادر عن إدارة المدرسة ولا يُعتد به إلا مختوماً وموقّعاً.')}
+                        {t('هذا الكشف صادر عن إدارة المدرسة ولا يؤخذ به إلا مختوماً وموقّعاً.')}
                     </p>
 
                     <SignatureBlock finance />
