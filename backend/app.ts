@@ -196,6 +196,29 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     });
   }
 
+  /**
+   * The other configuration failure that reads as a broken site: a query that
+   * filters and sorts at once needs a composite index, and until one is
+   * deployed Firestore rejects the query outright. Most of these queries now
+   * fall back to an unindexed read, but say what is actually wrong for any
+   * that cannot.
+   */
+  if (err?.code === "failed-precondition") {
+    console.error(
+      `\n[config] Firestore rejected ${req.method} ${req.url} — a composite index is missing.\n` +
+        "         Run: firebase deploy --only firestore:indexes\n" +
+        "         The Firebase console error usually carries a direct link to create it.\n",
+      err?.message || err
+    );
+    return res.status(503).json({
+      error: tr(
+        "قاعدة البيانات تحتاج فهرساً لهذا الاستعلام. نفّذ الأمر: " +
+          "firebase deploy --only firestore:indexes",
+        langOf(req)
+      ),
+    });
+  }
+
   const status = err instanceof ValidationError ? 400 : err?.status || err?.statusCode || 500;
 
   if (status >= 500) {

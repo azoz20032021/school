@@ -112,8 +112,14 @@ router.get(
     const pageSize = v.num(req.query.limit, "الحد", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE });
     const cursor = req.query.after ? String(req.query.after) : null;
 
-    const q = query(behaviorRef, where("class_id", "==", req.params.classId), orderBy("date", "desc"));
-    const { data, nextCursor } = await fetchPage<Record<string, any>>(q, pageSize, cursor, behaviorRef);
+    const base = query(behaviorRef, where("class_id", "==", req.params.classId));
+    const q = query(base, orderBy("date", "desc"));
+    const { data, nextCursor } = await fetchPage<Record<string, any>>(q, pageSize, cursor, behaviorRef, {
+      base,
+      sortField: "date",
+      direction: "desc",
+      label: "behaviour notes by class, newest first",
+    });
     res.json({ data, nextCursor });
   })
 );

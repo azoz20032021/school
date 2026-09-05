@@ -204,38 +204,116 @@ export async function fetchIndexed<T = DocumentData>(
 }
 
 /**
+ * Describes how to answer a paginated query when its composite index is
+ * missing: the same filters without the `orderBy`, plus the field to sort on
+ * once the documents are in memory.
+ */
+export interface PageFallback {
+  /** The query with the same `where` clauses but no `orderBy`. */
+  base: Query | CollectionReference;
+  /** The field the indexed query sorts on. */
+  sortField: string;
+  direction?: "asc" | "desc";
+  /** Human-readable name of the query, for the warning in the log. */
+  label: string;
+}
+
+/** Marks a cursor produced by the fallback path, where it is an offset. */
+const OFFSET_PREFIX = "o:";
+
+/** Timestamps, ISO strings and numbers all have to compare sensibly. */
+function sortValue(value: any): number | string {
+  if (value === null || value === undefined) return "";
+  if (typeof value?.toMillis === "function") return value.toMillis();
+  if (typeof value?.seconds === "number") return value.seconds;
+  if (typeof value === "number" || typeof value === "string") return value;
+  return String(value);
+}
+
+/**
  * Cursor-based pagination.
  *
  * Returns up to `pageSize` documents from `q`. When the caller passes
  * `cursorId` (the `id` of the last document from the previous page), results
- * start *after* that document.
+ * start *after* that document. The returned `nextCursor` is `null` when there
+ * are no more pages.
  *
- * The returned `nextCursor` is `null` when there are no more pages.
+ * A query that both filters and orders needs a composite index, and Firestore
+ * answers one whose index is missing with `failed-precondition` — an outright
+ * error, not a slow result. Shipping such a query before running
+ * `firebase deploy --only firestore:indexes` therefore turned a whole screen
+ * into "server error": that is exactly how the registrations queue came to look
+ * broken while the data sat there intact. When the caller supplies a
+ * `fallback`, that failure degrades into the old unindexed behaviour — correct,
+ * merely more expensive — and logs loudly so the missing index is still fixed.
  */
 export async function fetchPage<T = DocumentData>(
   q: Query | CollectionReference,
   pageSize: number,
   cursorId?: string | null,
   /** The collection ref is needed to look up the cursor document by id. */
-  collectionRef?: CollectionReference
+  collectionRef?: CollectionReference,
+  fallback?: PageFallback
 ): Promise<{ data: WithId<T>[]; nextCursor: string | null }> {
-  let paged = query(q as Query, fsLimit(pageSize + 1));
+  // A cursor from the fallback path is an offset, meaningless to Firestore.
+  const paging = !cursorId?.startsWith(OFFSET_PREFIX);
 
-  if (cursorId && collectionRef) {
-    const cursorSnap = await getDoc(fsDoc(collectionRef, cursorId));
-    if (cursorSnap.exists()) {
-      paged = query(q as Query, startAfter(cursorSnap), fsLimit(pageSize + 1));
+  if (paging) {
+    try {
+      let paged = query(q as Query, fsLimit(pageSize + 1));
+
+      if (cursorId && collectionRef) {
+        const cursorSnap = await getDoc(fsDoc(collectionRef, cursorId));
+        if (cursorSnap.exists()) {
+          paged = query(q as Query, startAfter(cursorSnap), fsLimit(pageSize + 1));
+        }
+      }
+
+      const snap = await getDocs(paged);
+      const docs = mapSnapshot<T>(snap);
+
+      const hasMore = docs.length > pageSize;
+      if (hasMore) docs.pop();
+
+      return {
+        data: docs,
+        nextCursor: hasMore ? docs[docs.length - 1]?.id ?? null : null,
+      };
+    } catch (err: any) {
+      if (err?.code !== "failed-precondition" || !fallback) throw err;
+      console.warn(
+        `[db] no Firestore index for "${fallback.label}" — falling back to a full\n` +
+          `     collection read and sorting in memory.\n` +
+          `     Run: firebase deploy --only firestore:indexes`
+      );
     }
   }
 
-  const snap = await getDocs(paged);
-  const docs = mapSnapshot<T>(snap);
+  if (!fallback) {
+    throw new Error("fetchPage: an offset cursor was given but no fallback to resolve it");
+  }
 
-  const hasMore = docs.length > pageSize;
-  if (hasMore) docs.pop();
+  const rows = await fetchAll<T>(fallback.base);
+  const dir = fallback.direction === "asc" ? 1 : -1;
+  rows.sort((a, b) => {
+    const left = sortValue((a as any)[fallback.sortField]);
+    const right = sortValue((b as any)[fallback.sortField]);
+    if (left === right) return 0;
+    return left > right ? dir : -dir;
+  });
 
+  let start = 0;
+  if (cursorId?.startsWith(OFFSET_PREFIX)) {
+    start = Number(cursorId.slice(OFFSET_PREFIX.length)) || 0;
+  } else if (cursorId) {
+    // The previous page came from the indexed path before it started failing.
+    const index = rows.findIndex((r) => r.id === cursorId);
+    start = index >= 0 ? index + 1 : 0;
+  }
+
+  const next = start + pageSize;
   return {
-    data: docs,
-    nextCursor: hasMore ? docs[docs.length - 1]?.id ?? null : null,
+    data: rows.slice(start, next),
+    nextCursor: next < rows.length ? OFFSET_PREFIX + next : null,
   };
 }

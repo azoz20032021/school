@@ -121,6 +121,8 @@ const EN: Record<string, string> = {
   "العنصر المطلوب غير موجود": "The requested item was not found",
   "المسار المطلوب غير موجود": "The requested endpoint was not found",
   "حدث خطأ في الخادم، يرجى المحاولة لاحقاً": "A server error occurred. Please try again later",
+  "قاعدة البيانات تحتاج فهرساً لهذا الاستعلام. نفّذ الأمر: firebase deploy --only firestore:indexes":
+    "The database needs an index for this query. Run: firebase deploy --only firestore:indexes",
   "طلب غير صالح": "Invalid request",
   "لا توجد بيانات للتحديث": "There is nothing to update",
   "تعذر الاتصال بقاعدة البيانات، يرجى المحاولة بعد قليل":

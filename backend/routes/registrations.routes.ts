@@ -202,8 +202,14 @@ router.get(
     const status = req.query.status ? v.oneOf(req.query.status, "الحالة", STATUSES) : null;
 
     const filters: any[] = status ? [where("status", "==", status)] : [];
-    const q = query(registrationsRef, ...filters, orderBy("createdAt", "desc"));
-    const { data, nextCursor } = await fetchPage<Record<string, any>>(q, pageSize, cursor, registrationsRef);
+    const base = filters.length ? query(registrationsRef, ...filters) : registrationsRef;
+    const q = query(base as any, orderBy("createdAt", "desc"));
+    const { data, nextCursor } = await fetchPage<Record<string, any>>(q, pageSize, cursor, registrationsRef, {
+      base,
+      sortField: "createdAt",
+      direction: "desc",
+      label: "registrations by status, newest first",
+    });
 
     res.json({ data: data.map(({ password, ...safe }) => safe), nextCursor });
   })

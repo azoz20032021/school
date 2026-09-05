@@ -90,8 +90,14 @@ router.get(
       filters.push(where("status", "==", v.oneOf(req.query.status, "الحالة", INVOICE_STATUSES)));
     }
 
-    const q = query(invoicesRef, ...filters, orderBy("createdAt", "desc"));
-    const { data, nextCursor } = await fetchPage<Record<string, any>>(q, pageSize, cursor, invoicesRef);
+    const base = filters.length ? query(invoicesRef, ...filters) : invoicesRef;
+    const q = query(base as any, orderBy("createdAt", "desc"));
+    const { data, nextCursor } = await fetchPage<Record<string, any>>(q, pageSize, cursor, invoicesRef, {
+      base,
+      sortField: "createdAt",
+      direction: "desc",
+      label: "invoices by student/class/status, newest first",
+    });
 
     res.json({
       data: data.map((inv) => ({ ...inv, net_amount: netAmount(inv), remaining: remainingAmount(inv) })),

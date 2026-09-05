@@ -124,21 +124,64 @@ async function fetchIndexed(indexed, fallback, label) {
     return fallback();
   }
 }
-async function fetchPage(q, pageSize, cursorId, collectionRef) {
-  let paged = query(q, fsLimit(pageSize + 1));
-  if (cursorId && collectionRef) {
-    const cursorSnap = await getDoc(fsDoc(collectionRef, cursorId));
-    if (cursorSnap.exists()) {
-      paged = query(q, startAfter(cursorSnap), fsLimit(pageSize + 1));
+var OFFSET_PREFIX = "o:";
+function sortValue(value) {
+  if (value === null || value === void 0) return "";
+  if (typeof value?.toMillis === "function") return value.toMillis();
+  if (typeof value?.seconds === "number") return value.seconds;
+  if (typeof value === "number" || typeof value === "string") return value;
+  return String(value);
+}
+async function fetchPage(q, pageSize, cursorId, collectionRef, fallback) {
+  const paging = !cursorId?.startsWith(OFFSET_PREFIX);
+  if (paging) {
+    try {
+      let paged = query(q, fsLimit(pageSize + 1));
+      if (cursorId && collectionRef) {
+        const cursorSnap = await getDoc(fsDoc(collectionRef, cursorId));
+        if (cursorSnap.exists()) {
+          paged = query(q, startAfter(cursorSnap), fsLimit(pageSize + 1));
+        }
+      }
+      const snap = await getDocs(paged);
+      const docs = mapSnapshot(snap);
+      const hasMore = docs.length > pageSize;
+      if (hasMore) docs.pop();
+      return {
+        data: docs,
+        nextCursor: hasMore ? docs[docs.length - 1]?.id ?? null : null
+      };
+    } catch (err) {
+      if (err?.code !== "failed-precondition" || !fallback) throw err;
+      console.warn(
+        `[db] no Firestore index for "${fallback.label}" \u2014 falling back to a full
+     collection read and sorting in memory.
+     Run: firebase deploy --only firestore:indexes`
+      );
     }
   }
-  const snap = await getDocs(paged);
-  const docs = mapSnapshot(snap);
-  const hasMore = docs.length > pageSize;
-  if (hasMore) docs.pop();
+  if (!fallback) {
+    throw new Error("fetchPage: an offset cursor was given but no fallback to resolve it");
+  }
+  const rows = await fetchAll(fallback.base);
+  const dir = fallback.direction === "asc" ? 1 : -1;
+  rows.sort((a, b) => {
+    const left = sortValue(a[fallback.sortField]);
+    const right = sortValue(b[fallback.sortField]);
+    if (left === right) return 0;
+    return left > right ? dir : -dir;
+  });
+  let start = 0;
+  if (cursorId?.startsWith(OFFSET_PREFIX)) {
+    start = Number(cursorId.slice(OFFSET_PREFIX.length)) || 0;
+  } else if (cursorId) {
+    const index = rows.findIndex((r) => r.id === cursorId);
+    start = index >= 0 ? index + 1 : 0;
+  }
+  const next = start + pageSize;
   return {
-    data: docs,
-    nextCursor: hasMore ? docs[docs.length - 1]?.id ?? null : null
+    data: rows.slice(start, next),
+    nextCursor: next < rows.length ? OFFSET_PREFIX + next : null
   };
 }
 
@@ -240,6 +283,7 @@ var EN = {
   "\u0627\u0644\u0639\u0646\u0635\u0631 \u0627\u0644\u0645\u0637\u0644\u0648\u0628 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F": "The requested item was not found",
   "\u0627\u0644\u0645\u0633\u0627\u0631 \u0627\u0644\u0645\u0637\u0644\u0648\u0628 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F": "The requested endpoint was not found",
   "\u062D\u062F\u062B \u062E\u0637\u0623 \u0641\u064A \u0627\u0644\u062E\u0627\u062F\u0645\u060C \u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0644\u0627\u062D\u0642\u0627\u064B": "A server error occurred. Please try again later",
+  "\u0642\u0627\u0639\u062F\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A \u062A\u062D\u062A\u0627\u062C \u0641\u0647\u0631\u0633\u0627\u064B \u0644\u0647\u0630\u0627 \u0627\u0644\u0627\u0633\u062A\u0639\u0644\u0627\u0645. \u0646\u0641\u0651\u0630 \u0627\u0644\u0623\u0645\u0631: firebase deploy --only firestore:indexes": "The database needs an index for this query. Run: firebase deploy --only firestore:indexes",
   "\u0637\u0644\u0628 \u063A\u064A\u0631 \u0635\u0627\u0644\u062D": "Invalid request",
   "\u0644\u0627 \u062A\u0648\u062C\u062F \u0628\u064A\u0627\u0646\u0627\u062A \u0644\u0644\u062A\u062D\u062F\u064A\u062B": "There is nothing to update",
   "\u062A\u0639\u0630\u0631 \u0627\u0644\u0627\u062A\u0635\u0627\u0644 \u0628\u0642\u0627\u0639\u062F\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A\u060C \u064A\u0631\u062C\u0649 \u0627\u0644\u0645\u062D\u0627\u0648\u0644\u0629 \u0628\u0639\u062F \u0642\u0644\u064A\u0644": "Could not reach the database. Please try again shortly",
@@ -932,8 +976,14 @@ router2.get(
     const cursor = req.query.after ? String(req.query.after) : null;
     const status = req.query.status ? oneOf(req.query.status, "\u0627\u0644\u062D\u0627\u0644\u0629", STATUSES) : null;
     const filters = status ? [where3("status", "==", status)] : [];
-    const q = query3(registrationsRef, ...filters, orderBy2("createdAt", "desc"));
-    const { data, nextCursor } = await fetchPage(q, pageSize, cursor, registrationsRef);
+    const base = filters.length ? query3(registrationsRef, ...filters) : registrationsRef;
+    const q = query3(base, orderBy2("createdAt", "desc"));
+    const { data, nextCursor } = await fetchPage(q, pageSize, cursor, registrationsRef, {
+      base,
+      sortField: "createdAt",
+      direction: "desc",
+      label: "registrations by status, newest first"
+    });
     res.json({ data: data.map(({ password: password2, ...safe }) => safe), nextCursor });
   })
 );
@@ -1672,8 +1722,14 @@ router4.get(
     if (req.query.status) {
       filters.push(where6("status", "==", oneOf(req.query.status, "\u0627\u0644\u062D\u0627\u0644\u0629", INVOICE_STATUSES)));
     }
-    const q = query6(invoicesRef, ...filters, orderBy4("createdAt", "desc"));
-    const { data, nextCursor } = await fetchPage(q, pageSize, cursor, invoicesRef);
+    const base = filters.length ? query6(invoicesRef, ...filters) : invoicesRef;
+    const q = query6(base, orderBy4("createdAt", "desc"));
+    const { data, nextCursor } = await fetchPage(q, pageSize, cursor, invoicesRef, {
+      base,
+      sortField: "createdAt",
+      direction: "desc",
+      label: "invoices by student/class/status, newest first"
+    });
     res.json({
       data: data.map((inv) => ({ ...inv, net_amount: netAmount(inv), remaining: remainingAmount(inv) })),
       nextCursor
@@ -2442,8 +2498,14 @@ router7.get(
   wrap(async (req, res) => {
     const pageSize = num(req.query.limit, "\u0627\u0644\u062D\u062F", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE4 });
     const cursor = req.query.after ? String(req.query.after) : null;
-    const q = query9(gradesRef, where9("class_id", "==", req.params.classId), orderBy5("createdAt", "desc"));
-    const { data, nextCursor } = await fetchPage(q, pageSize, cursor, gradesRef);
+    const base = query9(gradesRef, where9("class_id", "==", req.params.classId));
+    const q = query9(base, orderBy5("createdAt", "desc"));
+    const { data, nextCursor } = await fetchPage(q, pageSize, cursor, gradesRef, {
+      base,
+      sortField: "createdAt",
+      direction: "desc",
+      label: "grades by class, newest first"
+    });
     res.json({ data, nextCursor });
   })
 );
@@ -2850,8 +2912,14 @@ router10.get(
   wrap(async (req, res) => {
     const pageSize = num(req.query.limit, "\u0627\u0644\u062D\u062F", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE5 });
     const cursor = req.query.after ? String(req.query.after) : null;
-    const q = query12(behaviorRef, where12("class_id", "==", req.params.classId), orderBy7("date", "desc"));
-    const { data, nextCursor } = await fetchPage(q, pageSize, cursor, behaviorRef);
+    const base = query12(behaviorRef, where12("class_id", "==", req.params.classId));
+    const q = query12(base, orderBy7("date", "desc"));
+    const { data, nextCursor } = await fetchPage(q, pageSize, cursor, behaviorRef, {
+      base,
+      sortField: "date",
+      direction: "desc",
+      label: "behaviour notes by class, newest first"
+    });
     res.json({ data, nextCursor });
   })
 );
@@ -3228,6 +3296,22 @@ app.use((err, req, res, _next) => {
     return res.status(503).json({
       error: tr(
         "\u0627\u0644\u062E\u0627\u062F\u0645 \u063A\u064A\u0631 \u0645\u0635\u0631\u062D \u0644\u0647 \u0628\u0627\u0644\u0648\u0635\u0648\u0644 \u0644\u0642\u0627\u0639\u062F\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A. \u062A\u0623\u0643\u062F \u0645\u0646 \u0636\u0628\u0637 FIREBASE_SERVER_EMAIL \u0648 FIREBASE_SERVER_PASSWORD\u060C \u0648\u0623\u0646 \u0627\u0644\u0640 UID \u0641\u064A firestore.rules \u064A\u0637\u0627\u0628\u0642 \u062D\u0633\u0627\u0628 \u0627\u0644\u062E\u062F\u0645\u0629.",
+        langOf(req)
+      )
+    });
+  }
+  if (err?.code === "failed-precondition") {
+    console.error(
+      `
+[config] Firestore rejected ${req.method} ${req.url} \u2014 a composite index is missing.
+         Run: firebase deploy --only firestore:indexes
+         The Firebase console error usually carries a direct link to create it.
+`,
+      err?.message || err
+    );
+    return res.status(503).json({
+      error: tr(
+        "\u0642\u0627\u0639\u062F\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A \u062A\u062D\u062A\u0627\u062C \u0641\u0647\u0631\u0633\u0627\u064B \u0644\u0647\u0630\u0627 \u0627\u0644\u0627\u0633\u062A\u0639\u0644\u0627\u0645. \u0646\u0641\u0651\u0630 \u0627\u0644\u0623\u0645\u0631: firebase deploy --only firestore:indexes",
         langOf(req)
       )
     });

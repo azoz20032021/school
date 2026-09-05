@@ -142,6 +142,34 @@ Missing or insufficient permissions
 3. نفّذ خطوات "إقفال قاعدة البيانات" أعلاه.
 4. أنشئ حساب المدير عبر `POST /api/setup`.
 
+Vercel يبني وينشر تلقائياً مع كل `git push` على `main`.
+
+---
+
+## خطوات النشر على Firebase
+
+Firebase **لا ينشر تلقائياً** مع الـ push — لازم أمر يدوي. الواجهة تنزل على
+Hosting والـ API يشتغل كدالة `api` داخل `functions/`، والاثنان يُبنيان من نفس
+الشيفرة:
+
+```bash
+npm run build
+firebase deploy --only firestore:indexes,functions,hosting
+```
+
+نقاط تخص Firebase وحده:
+
+- **الفهارس (`firestore:indexes`)** — أي استعلام يفلتر ويرتّب بنفس الوقت يحتاج
+  فهرساً مركّباً. إذا لم يُنشر، Firestore يرفض الاستعلام بخطأ لا بنتيجة بطيئة،
+  والشاشة تطلع "حدث خطأ في الخادم" مع أن البيانات موجودة. الفهارس المطلوبة كلها
+  مكتوبة في `firestore.indexes.json`، وينشرها الأمر أعلاه. الشيفرة تتحمّل غيابها
+  (تقرأ وترتّب بالذاكرة وتسجّل تحذيراً)، لكن ذلك أبطأ وأغلى.
+- **متغيرات البيئة** — دوال Firebase لا تقرأ متغيرات Vercel. ضعها في
+  `functions/.env` (`SESSION_SECRET`، `FIREBASE_SERVER_EMAIL`،
+  `FIREBASE_SERVER_PASSWORD`)؛ الـ CLI يرفعها مع الدالة. الملف لا يُرفع إلى git.
+- **بعد كل تعديل على الـ API** أعد `npm run build` قبل النشر: الدالة تُبنى من
+  `functions/index.js`، وهو ناتج بناء وليس شيفرة مصدرية.
+
 ---
 
 ## ماذا لو كبر النظام فعلاً؟
