@@ -1,6 +1,7 @@
 import { doc, getDocs, query, serverTimestamp, where, writeBatch } from "firebase/firestore";
-import { chunk, db, fetchAll, invoicesRef, notificationsRef } from "./db.js";
+import { chunk, db, invoicesRef, notificationsRef } from "./db.js";
 import { CURRENCY, daysUntil, netAmount, remainingAmount, todayIso } from "./money.js";
+import { feeView } from "./fees.js";
 
 /**
  * Fee reminders and the overdue lock.
@@ -29,48 +30,26 @@ const BATCH_LIMIT = 200;
 
 export interface StudentDues {
   outstanding: number;
-  overdue_amount: number;
-  overdue_count: number;
+  /** The earliest date still owed. */
   next_due_date: string | null;
-  /** True when a due date has passed with money still owed. */
+  /** True when that date has passed with money still owed. */
   blocked: boolean;
 }
 
 /**
- * What one student owes right now. Cheap: a student has a handful of invoices.
+ * What a student owes, read straight off their own account record.
+ *
+ * This is checked on every sign-in and on every app start, so it used to be a
+ * query per boot against that student's invoices. The figures now live on the
+ * student document, which the caller has already loaded to authenticate them —
+ * so the check costs nothing at all.
  */
-export async function studentDues(studentId: string): Promise<StudentDues> {
-  const invoices = await fetchAll<Record<string, any>>(
-    query(invoicesRef, where("student_id", "==", studentId))
-  );
-
-  const today = todayIso();
-  let outstanding = 0;
-  let overdueAmount = 0;
-  let overdueCount = 0;
-  let nextDue: string | null = null;
-
-  for (const inv of invoices) {
-    if (inv.status === "cancelled") continue;
-    const remaining = remainingAmount(inv);
-    if (remaining <= 0) continue;
-
-    outstanding += remaining;
-
-    if (inv.due_date && inv.due_date < today) {
-      overdueAmount += remaining;
-      overdueCount++;
-    } else if (inv.due_date && (nextDue === null || inv.due_date < nextDue)) {
-      nextDue = inv.due_date;
-    }
-  }
-
+export function duesFromUser(student: Record<string, any>): StudentDues {
+  const fees = feeView(student);
   return {
-    outstanding,
-    overdue_amount: overdueAmount,
-    overdue_count: overdueCount,
-    next_due_date: nextDue,
-    blocked: overdueCount > 0,
+    outstanding: fees.fees_outstanding,
+    next_due_date: fees.fees_next_due,
+    blocked: fees.is_overdue,
   };
 }
 

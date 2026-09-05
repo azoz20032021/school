@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { doc, getDoc, orderBy, query, where } from "firebase/firestore";
+import { doc, getCountFromServer, getDoc, orderBy, query, where } from "firebase/firestore";
 import {
   attendanceRef,
   behaviorRef,
@@ -16,12 +16,29 @@ import {
   usersRef,
 } from "../lib/db.js";
 import { cached } from "../lib/cache.js";
+import { feeView } from "../lib/fees.js";
+import { studentRoster } from "../lib/roster.js";
 import { requireAuth, requireRole, requireSelfOrStaff, sanitizeUser } from "../lib/auth.js";
 import { notFound, wrap } from "../lib/http.js";
 import { netAmount, remainingAmount, CURRENCY } from "./payments.routes.js";
 import * as v from "../lib/validate.js";
 
 const router = Router();
+
+/**
+ * Count a query without reading its documents; report zero rather than failing
+ * the page if the index it needs has not been deployed yet.
+ */
+async function countOrZero(q: any): Promise<number> {
+  try {
+    const snapshot = await getCountFromServer(q);
+    return snapshot.data().count;
+  } catch (err: any) {
+    if (err?.code !== "failed-precondition") throw err;
+    console.warn("[reports] no index for a count — reporting 0 until it is deployed");
+    return 0;
+  }
+}
 
 function attendanceStats(records: { status: string }[]) {
   const total = records.length;
@@ -231,26 +248,46 @@ router.get(
     const payload = await cached("overview:school", 300_000, async () => {
       const today = new Date().toISOString().slice(0, 10);
 
-      const [users, classes, invoices, todayAttendance, registrations] = await Promise.all([
-        fetchAll<any>(usersRef),
+      /**
+       * Every number here is a count, and a count does not need the documents.
+       * Firestore bills an aggregation as one read per thousand matched index
+       * entries, so what used to be a full read of the users, the classes, the
+       * invoices and the day's attendance — well over a thousand documents on
+       * every expiry — is now a handful of reads. The money comes from the
+       * totals already stored on each student, which the roster carries.
+       */
+      const [
+        roster,
+        classes,
+        teachers,
+        assistants,
+        pending,
+        attendance,
+      ] = await Promise.all([
+        studentRoster(),
         fetchAll<any>(classesRef),
-        fetchAll<any>(invoicesRef),
-        fetchAll<any>(query(attendanceRef, where("date", "==", today))),
-        fetchAll<any>(query(registrationsRef, where("status", "==", "pending"))),
+        countOrZero(query(usersRef, where("role", "==", "teacher"))),
+        countOrZero(query(usersRef, where("role", "==", "assistant_admin"))),
+        countOrZero(query(registrationsRef, where("status", "==", "pending"))),
+        attendanceCountsFor(today),
       ]);
 
-      const activeInvoices = invoices.filter((i) => i.status !== "cancelled");
-      const billed = activeInvoices.reduce((sum, i) => sum + netAmount(i), 0);
-      const paid = activeInvoices.reduce((sum, i) => sum + Number(i.paid_amount || 0), 0);
+      let billed = 0;
+      let paid = 0;
+      for (const student of roster) {
+        const fees = feeView(student);
+        billed += fees.fees_billed;
+        paid += fees.fees_paid;
+      }
 
       return {
         currency: CURRENCY,
-        students: users.filter((u) => u.role === "student").length,
-        teachers: users.filter((u) => u.role === "teacher").length,
-        assistants: users.filter((u) => u.role === "assistant_admin").length,
+        students: roster.length,
+        teachers,
+        assistants,
         classes: classes.length,
-        pending_registrations: registrations.length,
-        attendance_today: attendanceStats(todayAttendance),
+        pending_registrations: pending,
+        attendance_today: attendance,
         finance: {
           total_billed: billed,
           total_collected: paid,
@@ -263,6 +300,35 @@ router.get(
     res.json(payload);
   })
 );
+
+/**
+ * Today's attendance, counted rather than read.
+ *
+ * A school day produces one record per student; reading them all to work out
+ * four totals cost as many reads as there are students, every time the overview
+ * refreshed. Five counts answer the same question.
+ */
+async function attendanceCountsFor(date: string) {
+  const forStatus = (status: string) =>
+    countOrZero(query(attendanceRef, where("date", "==", date), where("status", "==", status)));
+
+  const [total, present, absent, late, excused] = await Promise.all([
+    countOrZero(query(attendanceRef, where("date", "==", date))),
+    forStatus("present"),
+    forStatus("absent"),
+    forStatus("late"),
+    forStatus("excused"),
+  ]);
+
+  return {
+    total,
+    present,
+    absent,
+    late,
+    excused,
+    rate: total > 0 ? Math.round(((present + late) / total) * 100) : 100,
+  };
+}
 
 /** Attendance across a date range, for the printable attendance sheet. */
 router.get(

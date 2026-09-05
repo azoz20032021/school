@@ -102,6 +102,24 @@
       ]
     },
     {
+      "//": "Overdue invoices: the only part of a student's fees that a stored total cannot answer.",
+      "collectionGroup": "invoices",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "due_date", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "//": "Counting today's attendance by status for the dashboard.",
+      "collectionGroup": "attendance",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "date", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
       "//": "Attendance for one class over a date range (the printable absence sheet).",
       "collectionGroup": "attendance",
       "queryScope": "COLLECTION",

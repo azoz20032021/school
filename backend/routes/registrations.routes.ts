@@ -28,6 +28,7 @@ import { hashPassword, rateLimit, requireAdmin, requireStaff } from "../lib/auth
 import { audit } from "../lib/audit.js";
 import { badRequest, HttpError, notFound, wrap } from "../lib/http.js";
 import { invalidate } from "../lib/cache.js";
+import { recomputeStudentFees } from "../lib/fees.js";
 import * as v from "../lib/validate.js";
 
 const router = Router();
@@ -432,6 +433,9 @@ router.post(
         createdAt: serverTimestamp(),
       });
     }
+
+    // The opening instalment has to appear in the student's stored totals.
+    if (feeAmount > 0) await recomputeStudentFees(newUser.id);
 
     invalidate("students");
     invalidate("finance");

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Banknote, BellRing, CircleDollarSign, FileText, Phone, Plus, Receipt, Search, TrendingUp, Wallet,
+    Banknote, BellRing, CircleDollarSign, FileText, Phone, Plus, Receipt, RefreshCw, Search,
+    TrendingUp, Wallet,
 } from 'lucide-react';
 import { ClassData, Invoice, Payment, StudentFinanceRow } from '../../types';
 import { api, ApiError, formatMoney } from '../../lib/api';
@@ -273,6 +274,26 @@ export const Finance: React.FC = () => {
     };
 
     /**
+     * Recompute every student's stored fee totals from the invoices. Needed
+     * once for accounts that predate those fields, and afterwards only if the
+     * figures are ever suspected of drifting.
+     */
+    const rebuildTotals = async () => {
+        if (!confirm(t('سيعاد احتساب المجاميع المالية لكل الطلاب من السندات. متابعة؟'))) return;
+        setBusy(true);
+        setError('');
+        try {
+            const res = await api.post<{ students: number }>('/api/admin/finance/rebuild-totals');
+            await load();
+            alert(t('تم تحديث المجاميع المالية لـ {count} طالب', { count: res.students }));
+        } catch (err) {
+            setError(err instanceof ApiError ? err.message : t('تعذر تحديث المجاميع'));
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    /**
      * The reminders also go out on their own roughly hourly; this is for the
      * accountant who wants them sent now. Sending twice changes nothing.
      */
@@ -319,6 +340,17 @@ export const Finance: React.FC = () => {
                         <BellRing className="w-4 h-4" />
                         {t('تذكير بالأقساط')}
                     </button>
+                    {canDelete && (
+                        <button
+                            onClick={rebuildTotals}
+                            disabled={busy}
+                            className="bg-white border border-slate-200 text-slate-600 px-3 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5 hover:bg-slate-50 disabled:opacity-60"
+                            title={t('يعيد احتساب مجاميع كل طالب من سنداته — نفّذه مرة واحدة بعد التحديث')}
+                        >
+                            <RefreshCw className="w-4 h-4" />
+                            {t('تحديث المجاميع')}
+                        </button>
+                    )}
                     <button
                         onClick={() => setShowIssue(true)}
                         className="bg-indigo-600 text-white px-4 py-2.5 rounded-xl text-xs font-black shadow-lg shadow-indigo-100 flex items-center gap-1.5"
@@ -437,7 +469,7 @@ export const Finance: React.FC = () => {
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 flex-wrap">
                                             <p className="font-black text-slate-800 text-sm truncate">{s.name}</p>
-                                            <Badge tone={s.is_clear ? 'emerald' : s.overdue_amount > 0 ? 'rose' : 'amber'}>
+                                            <Badge tone={s.is_clear ? 'emerald' : s.is_overdue ? 'rose' : 'amber'}>
                                                 {t(s.payment_status)}
                                             </Badge>
                                         </div>

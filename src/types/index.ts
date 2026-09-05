@@ -35,10 +35,9 @@ export interface UserData {
 
 export interface StudentDues {
     outstanding: number;
-    overdue_amount: number;
-    overdue_count: number;
+    /** The earliest date still owed. */
     next_due_date: string | null;
-    /** A due date has passed with money still owed: the account is locked. */
+    /** That date has passed with money still owed: the account is locked. */
     blocked: boolean;
 }
 
@@ -148,8 +147,10 @@ export interface StudentFinanceRow {
     total_paid: number;
     outstanding: number;
     overdue_amount: number;
+    next_due_date?: string | null;
     payment_status: string;
     is_clear: boolean;
+    is_overdue?: boolean;
 }
 
 export interface BehaviorNote {

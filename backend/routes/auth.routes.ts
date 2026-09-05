@@ -12,7 +12,7 @@ import {
   type Role,
 } from "../lib/auth.js";
 import { audit } from "../lib/audit.js";
-import { maybeSendDueReminders, studentDues } from "../lib/dues.js";
+import { duesFromUser, maybeSendDueReminders } from "../lib/dues.js";
 import { badRequest, HttpError, wrap } from "../lib/http.js";
 import * as v from "../lib/validate.js";
 
@@ -88,7 +88,7 @@ router.post(
      * itself to a "settle your fees" screen while an invoice is past its due
      * date, and it must learn that from the server rather than from the client.
      */
-    const dues = sessionUser.role === "student" ? await studentDues(userDoc.id) : undefined;
+    const dues = sessionUser.role === "student" ? duesFromUser(data) : undefined;
 
     res.json({
       token: createToken(sessionUser),
@@ -112,7 +112,7 @@ router.get(
     // ordinary traffic. This does real work at most once an hour.
     maybeSendDueReminders();
 
-    const dues = data.role === "student" ? await studentDues(userDoc.id) : undefined;
+    const dues = data.role === "student" ? duesFromUser(data) : undefined;
     res.json({ ...sanitizeUser({ id: userDoc.id, ...data }), dues });
   })
 );

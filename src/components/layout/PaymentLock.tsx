@@ -51,16 +51,15 @@ export const PaymentLock: React.FC<{
 
                 <div className="bg-rose-50 border border-rose-100 rounded-2xl p-4 mt-5 text-right">
                     <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-rose-500">{t('المبلغ المتأخر')}</span>
-                        <span className="text-lg font-black text-rose-700">{formatMoney(dues.overdue_amount)}</span>
+                        <span className="text-[11px] font-bold text-rose-500">{t('المبلغ المتبقي')}</span>
+                        <span className="text-lg font-black text-rose-700">{formatMoney(dues.outstanding)}</span>
                     </div>
-                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-rose-100">
-                        <span className="text-[11px] font-bold text-rose-500">{t('إجمالي المتبقي')}</span>
-                        <span className="text-sm font-black text-rose-700">{formatMoney(dues.outstanding)}</span>
-                    </div>
-                    <p className="text-[10px] font-bold text-rose-400 mt-2">
-                        {t('عدد السندات المتأخرة')}: {dues.overdue_count}
-                    </p>
+                    {dues.next_due_date && (
+                        <div className="flex items-center justify-between mt-2 pt-2 border-t border-rose-100">
+                            <span className="text-[11px] font-bold text-rose-500">{t('تاريخ الاستحقاق الفائت')}</span>
+                            <span className="text-sm font-black text-rose-700" dir="ltr">{dues.next_due_date}</span>
+                        </div>
+                    )}
                 </div>
 
                 <p className="text-[11px] text-slate-400 font-bold mt-4 flex items-center justify-center gap-1.5">

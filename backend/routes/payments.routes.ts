@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   addDoc,
   doc,
+  getCountFromServer,
   getDoc,
   getDocs,
   orderBy,
@@ -18,6 +19,7 @@ import {
   db,
   enrollmentsRef,
   fetchAll,
+  fetchIndexed,
   fetchPage,
   getDocsByIds,
   invoicesRef,
@@ -27,8 +29,14 @@ import {
 } from "../lib/db.js";
 import { requireAdmin, requireAuth, requireSelfOrStaff, requireStaff } from "../lib/auth.js";
 import { cached, invalidate } from "../lib/cache.js";
-import { CURRENCY, netAmount, remainingAmount, type InvoiceShape } from "../lib/money.js";
+import { CURRENCY, netAmount, remainingAmount, todayIso, type InvoiceShape } from "../lib/money.js";
 import { sendDueReminders } from "../lib/dues.js";
+import {
+  applyBulkBilling,
+  feeView,
+  rebuildAllStudentFees,
+  recomputeStudentFees,
+} from "../lib/fees.js";
 import { matchesStudent, normalizeArabic, paginate, studentRoster } from "../lib/roster.js";
 import { audit } from "../lib/audit.js";
 import { badRequest, notFound, wrap } from "../lib/http.js";
@@ -46,11 +54,28 @@ const BATCH_LIMIT = 450;
 const DEFAULT_PAGE_SIZE = 20;
 
 /**
- * How long the cached invoice scan may be reused; every write drops it.
+ * Count a query without reading its documents. Firestore charges an aggregation
+ * as one read per thousand matched index entries, so a headline count costs a
+ * single read instead of the whole collection. If the index it needs has not
+ * been deployed the figure is reported as zero rather than failing the page.
+ */
+async function countOrZero(q: any): Promise<number> {
+  try {
+    const snapshot = await getCountFromServer(q);
+    return snapshot.data().count;
+  } catch (err: any) {
+    if (err?.code !== "failed-precondition") throw err;
+    console.warn("[finance] no index for an invoice count — reporting 0 until it is deployed");
+    return 0;
+  }
+}
+
+/**
+ * How long a cached finance read may be reused; every write drops it.
  *
- * This one read covers the whole ledger — a few hundred students' invoices —
- * and it feeds the summary, the standing list and the debt report. At thirty
- * seconds it was being paid for again several times a minute.
+ * What is cached is now only the invoices that have actually lapsed, not the
+ * whole ledger — everything else is answered from figures stored on each
+ * student's own record.
  */
 const FINANCE_TTL_MS = 300_000;
 
@@ -194,7 +219,19 @@ router.post(
       await batch.commit();
     }
 
-    // The cached invoice scan no longer reflects the ledger.
+    /**
+     * Add the new charge to each student's stored total. Increments rather than
+     * a recompute: issuing tuition to four hundred students would otherwise be
+     * four hundred queries, and an increment cannot lose a concurrent write.
+     * The student documents are already in hand, so the earliest-due date is
+     * compared without reading anything again.
+     */
+    const netPerStudent = amount - discount;
+    const currentNextDue = new Map<string, string | null>(
+      studentIds.map((id) => [id, (students.get(id)?.fees_next_due as string) || null])
+    );
+    await applyBulkBilling(studentIds, netPerStudent, dueDate, currentNextDue);
+
     invalidate("finance");
     audit(req, {
       action: "create",
@@ -236,7 +273,10 @@ router.put(
 
     await updateDoc(invoiceDoc, patch);
 
-    // The cached invoice scan no longer reflects the ledger.
+    // One student, so a recompute from their own invoices is both cheap and
+    // self-correcting — it repairs any earlier drift as a side effect.
+    await recomputeStudentFees(current.student_id);
+
     invalidate("finance");
     audit(req, {
       action: "update",
@@ -269,7 +309,7 @@ router.delete(
       cancelled_at: serverTimestamp(),
     });
 
-    // The cached invoice scan no longer reflects the ledger.
+    await recomputeStudentFees(data.student_id);
     invalidate("finance");
     audit(req, {
       action: "delete",
@@ -350,7 +390,7 @@ router.post(
       createdAt: serverTimestamp(),
     });
 
-    // The cached invoice scan no longer reflects the ledger.
+    await recomputeStudentFees(result.data.student_id);
     invalidate("finance");
     audit(req, {
       action: "payment",
@@ -383,10 +423,13 @@ router.delete(
   wrap(async (req, res) => {
     const paymentDoc = doc(db, "payments", req.params.id);
 
+    let reversedFor = "";
+
     const summary = await runTransaction(db, async (tx) => {
       const snap = await tx.get(paymentDoc);
       if (!snap.exists()) throw notFound("سند القبض غير موجود");
       const payment = snap.data() as Record<string, any>;
+      reversedFor = payment.student_id || "";
 
       const invoiceDoc = doc(db, "invoices", payment.invoice_id);
       const invoiceSnap = await tx.get(invoiceDoc);
@@ -403,7 +446,7 @@ router.delete(
       return `إرجاع دفعة ${payment.amount} ${CURRENCY} للطالب ${payment.student_name}`;
     });
 
-    // The cached invoice scan no longer reflects the ledger.
+    if (reversedFor) await recomputeStudentFees(reversedFor);
     invalidate("finance");
     audit(req, { action: "delete", entity: "payment", entityId: req.params.id, summary });
     res.json({ success: true });
@@ -415,26 +458,49 @@ router.delete(
  * ------------------------------------------------------------------ */
 
 /**
- * Per-student billed / paid / overdue totals, computed from one cached read of
- * the invoice collection and shared by every finance screen.
+ * The invoices that have actually lapsed — and only those.
+ *
+ * What a student owes now lives on their own record, so the finance screens no
+ * longer read the ledger to add it up. The one thing a stored total cannot
+ * answer is how much of it is *late*, because that changes with the calendar
+ * rather than with a write. This query returns just the overdue documents,
+ * which in a school that chases its fees is a short list, not the whole term's
+ * billing.
  */
-async function invoiceTotalsByStudent(): Promise<Map<string, { billed: number; paid: number; overdue: number }>> {
-  const invoices = await cached("finance:invoices", FINANCE_TTL_MS, () =>
-    fetchAll<Record<string, any>>(invoicesRef)
-  );
+async function overdueInvoices(): Promise<Record<string, any>[]> {
+  return cached("finance:overdue", FINANCE_TTL_MS, async () => {
+    const today = todayIso();
+    return fetchIndexed<Record<string, any>>(
+      query(
+        invoicesRef,
+        where("status", "in", ["unpaid", "partial"]),
+        where("due_date", "<", today),
+        orderBy("due_date")
+      ),
+      async () => {
+        const all = await fetchAll<Record<string, any>>(
+          query(invoicesRef, where("status", "in", ["unpaid", "partial"]))
+        );
+        return all.filter((i) => i.due_date && i.due_date < today);
+      },
+      "overdue invoices by due date"
+    );
+  });
+}
 
-  const today = new Date().toISOString().slice(0, 10);
-  const totals = new Map<string, { billed: number; paid: number; overdue: number }>();
-
-  for (const inv of invoices) {
-    if (inv.status === "cancelled") continue;
-    const entry = totals.get(inv.student_id) || { billed: 0, paid: 0, overdue: 0 };
-    entry.billed += netAmount(inv);
-    entry.paid += Number(inv.paid_amount || 0);
-    if (inv.due_date && inv.due_date < today) entry.overdue += remainingAmount(inv);
-    totals.set(inv.student_id, entry);
+/** How much each student is late by, keyed by student id. */
+async function overdueByStudent(): Promise<Map<string, { amount: number; count: number }>> {
+  const rows = await overdueInvoices();
+  const map = new Map<string, { amount: number; count: number }>();
+  for (const inv of rows) {
+    const remaining = remainingAmount(inv);
+    if (remaining <= 0) continue;
+    const entry = map.get(inv.student_id) || { amount: 0, count: 0 };
+    entry.amount += remaining;
+    entry.count++;
+    map.set(inv.student_id, entry);
   }
-  return totals;
+  return map;
 }
 
 router.get(
@@ -505,39 +571,64 @@ router.get(
   "/admin/finance/summary",
   requireStaff,
   wrap(async (req, res) => {
-    const invoices = await cached("finance:invoices", FINANCE_TTL_MS, () =>
-      fetchAll<Record<string, any>>(invoicesRef)
-    );
-    const active = invoices.filter((i) => i.status !== "cancelled");
+    /**
+     * The school's totals are the sum of the students' own stored totals, and
+     * the roster is already in memory — so the headline figures cost nothing.
+     * Only the two counts that depend on today's date go to the database, and
+     * they read the overdue invoices alone.
+     */
+    const [roster, overdue] = await Promise.all([studentRoster(), overdueInvoices()]);
 
-    const totalBilled = active.reduce((sum, i) => sum + netAmount(i), 0);
-    const totalPaid = active.reduce((sum, i) => sum + Number(i.paid_amount || 0), 0);
-    const today = new Date().toISOString().slice(0, 10);
+    let totalBilled = 0;
+    let totalPaid = 0;
+    let studentsWithDues = 0;
 
-    const perStudent = new Map<string, { name: string; uid: string; remaining: number }>();
-    for (const inv of active) {
-      const remaining = remainingAmount(inv);
-      if (remaining <= 0) continue;
-      const entry = perStudent.get(inv.student_id) || {
-        name: inv.student_name,
-        uid: inv.student_uid,
-        remaining: 0,
-      };
-      entry.remaining += remaining;
-      perStudent.set(inv.student_id, entry);
+    for (const student of roster) {
+      const fees = feeView(student);
+      totalBilled += fees.fees_billed;
+      totalPaid += fees.fees_paid;
+      if (!fees.is_clear) studentsWithDues++;
     }
+
+    const invoiceCounts = await cached("finance:counts", FINANCE_TTL_MS, async () => {
+      const [all, paid] = await Promise.all([
+        countOrZero(query(invoicesRef, where("status", "in", ["unpaid", "partial", "paid"]))),
+        countOrZero(query(invoicesRef, where("status", "==", "paid"))),
+      ]);
+      return { all, paid };
+    });
 
     res.json({
       currency: CURRENCY,
       total_billed: totalBilled,
       total_collected: totalPaid,
       outstanding: Math.max(0, totalBilled - totalPaid),
-      invoice_count: active.length,
-      paid_invoices: active.filter((i) => i.status === "paid").length,
-      overdue_invoices: active.filter((i) => i.due_date && i.due_date < today && remainingAmount(i) > 0).length,
-      students_with_dues: perStudent.size,
+      invoice_count: invoiceCounts.all,
+      paid_invoices: invoiceCounts.paid,
+      overdue_invoices: overdue.filter((i) => remainingAmount(i) > 0).length,
+      students_with_dues: studentsWithDues,
       collection_rate: totalBilled > 0 ? Math.round((totalPaid / totalBilled) * 100) : 100,
     });
+  })
+);
+
+/**
+ * Recompute every student's stored totals from the invoices.
+ *
+ * Run once after this went live, so accounts created before these fields
+ * existed get them; keep it for the day anything looks wrong.
+ */
+router.post(
+  "/admin/finance/rebuild-totals",
+  requireStaff,
+  wrap(async (req, res) => {
+    const result = await rebuildAllStudentFees();
+    audit(req, {
+      action: "update",
+      entity: "student",
+      summary: `إعادة احتساب المجاميع المالية لـ ${result.students} طالب من ${result.invoices} سند`,
+    });
+    res.json({ success: true, ...result });
   })
 );
 
@@ -571,11 +662,12 @@ router.get(
     });
     const pageSize = v.num(req.query.limit, "الحد", { min: 1, max: 500, optional: true, default: 0 });
 
-    const [roster, totals] = await Promise.all([studentRoster(), invoiceTotalsByStudent()]);
+    const [roster, overdue] = await Promise.all([studentRoster(), overdueByStudent()]);
 
     const rows = roster.map((s) => {
-      const t = totals.get(s.id) || { billed: 0, paid: 0, overdue: 0 };
-      const outstanding = Math.max(0, t.billed - t.paid);
+      // Straight off the student's own record — no invoice read at all.
+      const fees = feeView(s);
+      const late = overdue.get(s.id) || { amount: 0, count: 0 };
       return {
         student_id: s.id,
         name: s.name,
@@ -585,13 +677,20 @@ router.get(
         guardian_phone: s.guardian_phone || "",
         class_id: s.class_id,
         class_name: s.class_name,
-        total_billed: t.billed,
-        total_paid: t.paid,
-        outstanding,
-        overdue_amount: t.overdue,
-        payment_status:
-          outstanding === 0 ? (t.billed > 0 ? "مسدد" : "لا توجد رسوم") : t.overdue > 0 ? "متأخر" : "عليه مستحقات",
-        is_clear: outstanding === 0,
+        total_billed: fees.fees_billed,
+        total_paid: fees.fees_paid,
+        outstanding: fees.fees_outstanding,
+        overdue_amount: late.amount,
+        next_due_date: fees.fees_next_due,
+        payment_status: fees.is_clear
+          ? fees.fees_billed > 0
+            ? "مسدد"
+            : "لا توجد رسوم"
+          : fees.is_overdue
+            ? "متأخر"
+            : "عليه مستحقات",
+        is_clear: fees.is_clear,
+        is_overdue: fees.is_overdue,
       };
     });
 

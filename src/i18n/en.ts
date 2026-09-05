@@ -770,4 +770,13 @@ export const en: Record<string, string> = {
   "القسط الأول": "First instalment",
   "القسط الثاني": "Second instalment",
   "توقيع الإدارة": "Administration signature",
+
+  /* ------------------------ stored fee totals ------------------------ */
+  "المبلغ المتبقي": "Amount outstanding",
+  "تاريخ الاستحقاق الفائت": "Missed due date",
+  "تحديث المجاميع": "Rebuild totals",
+  "يعيد احتساب مجاميع كل طالب من سنداته — نفّذه مرة واحدة بعد التحديث": "Recomputes every student total from their invoices — run once after this update",
+  "سيعاد احتساب المجاميع المالية لكل الطلاب من السندات. متابعة؟": "Every student total will be recomputed from the invoices. Continue?",
+  "تم تحديث المجاميع المالية لـ {count} طالب": "Totals rebuilt for {count} students",
+  "تعذر تحديث المجاميع": "Could not rebuild the totals",
 };
