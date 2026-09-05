@@ -28,7 +28,14 @@ import { cached } from "./cache.js";
  * class without a second round trip.
  */
 
-const ROSTER_TTL_MS = 60_000;
+/**
+ * Five minutes. The roster is a full read of the students, their enrolments and
+ * the classes — the single largest recurring query in the app — and every write
+ * that changes it drops the entry, so the only staleness left is
+ * a change made on one serverless instance not being seen by another until the
+ * entry expires.
+ */
+const ROSTER_TTL_MS = 300_000;
 
 export interface RosterStudent extends Record<string, any> {
   id: string;

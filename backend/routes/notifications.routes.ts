@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   doc,
+  getCountFromServer,
   getDoc,
   getDocs,
   limit as fsLimit,
@@ -54,6 +55,45 @@ router.get(
     );
 
     res.json(rows);
+  })
+);
+
+/**
+ * How many unread notifications the caller has — and nothing else.
+ *
+ * This is the single most expensive thing the system does. The header polls for
+ * the badge on every open tab, and it was fetching twenty whole documents each
+ * time to count the unread ones: with fifty people signed in that is tens of
+ * thousands of document reads an hour, dwarfing everything else in the app.
+ *
+ * Firestore bills an aggregation query as one read per thousand matched index
+ * entries, so counting costs a single read no matter how full the inbox is —
+ * roughly a twentieth of what the old poll cost, before the longer interval.
+ * The list itself is fetched only when someone actually opens the panel.
+ */
+router.get(
+  "/notifications/:userId/unread-count",
+  requireAuth,
+  wrap(async (req, res) => {
+    if (req.user!.id !== req.params.userId) throw forbidden("لا يمكنك عرض إشعارات مستخدم آخر");
+
+    const unread = query(
+      notificationsRef,
+      where("user_id", "==", req.params.userId),
+      where("isRead", "==", false)
+    );
+
+    try {
+      const snapshot = await getCountFromServer(unread);
+      return res.json({ count: snapshot.data().count });
+    } catch (err: any) {
+      // An aggregation needs its index like any other query. Falling back to a
+      // capped read keeps the badge working while that index is deployed.
+      if (err?.code !== "failed-precondition") throw err;
+      console.warn("[notifications] no index for the unread count — counting the hard way");
+      const rows = await fetchAll<Record<string, any>>(unread);
+      return res.json({ count: rows.length });
+    }
   })
 );
 

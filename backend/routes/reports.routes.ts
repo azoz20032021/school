@@ -228,7 +228,7 @@ router.get(
   requireAuth,
   requireRole("admin", "assistant_admin"),
   wrap(async (_req, res) => {
-    const payload = await cached("overview:school", 30_000, async () => {
+    const payload = await cached("overview:school", 300_000, async () => {
       const today = new Date().toISOString().slice(0, 10);
 
       const [users, classes, invoices, todayAttendance, registrations] = await Promise.all([

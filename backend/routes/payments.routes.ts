@@ -45,8 +45,14 @@ const INVOICE_STATUSES = ["unpaid", "partial", "paid", "cancelled"] as const;
 const BATCH_LIMIT = 450;
 const DEFAULT_PAGE_SIZE = 20;
 
-/** How long the cached invoice scan may be reused; every write drops it. */
-const FINANCE_TTL_MS = 30_000;
+/**
+ * How long the cached invoice scan may be reused; every write drops it.
+ *
+ * This one read covers the whole ledger — a few hundred students' invoices —
+ * and it feeds the summary, the standing list and the debt report. At thirty
+ * seconds it was being paid for again several times a minute.
+ */
+const FINANCE_TTL_MS = 300_000;
 
 function deriveStatus(inv: InvoiceShape): string {
   if (inv.status === "cancelled") return "cancelled";

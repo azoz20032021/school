@@ -19,21 +19,56 @@ const ROLE_LABEL: Record<string, string> = {
     student: 'طالب',
 };
 
-const POLL_INTERVAL_MS = 60_000;
+/**
+ * How often the badge is refreshed.
+ *
+ * This poll runs in every open tab in the school, so its cost is multiplied by
+ * everyone signed in. It now asks the server for a single number rather than
+ * for twenty notifications, and asks less often: together that is roughly a
+ * sixtieth of the database reads the old one-minute list poll cost. Three
+ * minutes is still fast enough that nobody notices a delay on a school
+ * announcement.
+ */
+const POLL_INTERVAL_MS = 180_000;
 
 export const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout }) => {
     const [notifications, setNotifications] = useState<any[]>([]);
+    const [unreadCount, setUnreadCount] = useState(0);
+    const [loadingList, setLoadingList] = useState(false);
     const [showNotifs, setShowNotifs] = useState(false);
     const timerRef = useRef<number | null>(null);
 
-    const fetchNotifications = useCallback(async () => {
+    /** The poll: one number, nothing else. */
+    const fetchUnreadCount = useCallback(async () => {
         try {
-            const data = await api.get<any[]>(`/api/notifications/${user.id}`);
-            setNotifications(Array.isArray(data) ? data : []);
+            const res = await api.get<{ count: number }>(`/api/notifications/${user.id}/unread-count`);
+            setUnreadCount(res?.count ?? 0);
         } catch {
             // A failed poll is not worth interrupting the user for.
         }
     }, [user.id]);
+
+    /** The list, fetched only when someone actually opens the panel. */
+    const fetchNotifications = useCallback(async () => {
+        setLoadingList(true);
+        try {
+            const data = await api.get<any[]>(`/api/notifications/${user.id}`);
+            const rows = Array.isArray(data) ? data : [];
+            setNotifications(rows);
+            // The list is authoritative while it is on screen.
+            setUnreadCount(rows.filter((n) => !n.isRead).length);
+        } catch {
+            /* the panel keeps whatever it already had */
+        } finally {
+            setLoadingList(false);
+        }
+    }, [user.id]);
+
+    const openNotifications = () => {
+        const opening = !showNotifs;
+        setShowNotifs(opening);
+        if (opening) fetchNotifications();
+    };
 
     /**
      * Poll only while the tab is visible. The previous version kept a 30s timer
@@ -43,8 +78,8 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout
     useEffect(() => {
         const start = () => {
             if (timerRef.current !== null) return;
-            fetchNotifications();
-            timerRef.current = window.setInterval(fetchNotifications, POLL_INTERVAL_MS);
+            fetchUnreadCount();
+            timerRef.current = window.setInterval(fetchUnreadCount, POLL_INTERVAL_MS);
         };
         const stop = () => {
             if (timerRef.current === null) return;
@@ -59,10 +94,11 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout
             document.removeEventListener('visibilitychange', onVisibility);
             stop();
         };
-    }, [fetchNotifications]);
+    }, [fetchUnreadCount]);
 
     const markAsRead = async (id: string) => {
         setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+        setUnreadCount((c) => Math.max(0, c - 1));
         try {
             await api.post(`/api/notifications/read/${id}`);
         } catch {
@@ -72,14 +108,13 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout
 
     const markAllRead = async () => {
         setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+        setUnreadCount(0);
         try {
             await api.post('/api/notifications/read-all');
         } catch {
             fetchNotifications();
         }
     };
-
-    const unreadCount = notifications.filter((n) => !n.isRead).length;
 
     return (
         <header
@@ -104,7 +139,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout
 
                 <div className="relative">
                     <button
-                        onClick={() => setShowNotifs((v) => !v)}
+                        onClick={openNotifications}
                         className={`p-2.5 rounded-xl transition-all relative ${
                             showNotifs ? 'bg-slate-100 text-slate-900' : 'text-slate-400 hover:bg-slate-50 hover:text-indigo-600'
                         }`}
@@ -157,7 +192,11 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout
                                         </div>
                                     </div>
                                     <div className="overflow-y-auto overscroll-contain py-1 flex-1 max-h-[calc(80vh-70px)] sm:max-h-96">
-                                        {notifications.length > 0 ? (
+                                        {loadingList && notifications.length === 0 ? (
+                                            <p className="py-10 text-center text-xs font-bold text-slate-400">
+                                                {t('جاري التحميل...')}
+                                            </p>
+                                        ) : notifications.length > 0 ? (
                                             notifications.map((n) => (
                                                 <div
                                                     key={n.id}

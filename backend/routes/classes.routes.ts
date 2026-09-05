@@ -33,7 +33,8 @@ import * as v from "../lib/validate.js";
 const router = Router();
 
 const BATCH_LIMIT = 450;
-const CLASSES_TTL_MS = 60_000;
+// Classes change a handful of times a year and are read on nearly every page.
+const CLASSES_TTL_MS = 600_000;
 
 /** Public — the registration form needs the class list before anyone logs in. */
 router.get(

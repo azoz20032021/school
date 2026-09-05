@@ -1363,7 +1363,7 @@ import {
 
 // backend/lib/roster.ts
 import { query as query5, where as where5 } from "firebase/firestore";
-var ROSTER_TTL_MS = 6e4;
+var ROSTER_TTL_MS = 3e5;
 function normalizeArabic(text) {
   return String(text ?? "").replace(/[ً-ْٰـ]/g, "").replace(/[إأآٱا]/g, "\u0627").replace(/[ىی]/g, "\u064A").replace(/ؤ/g, "\u0648").replace(/ئ/g, "\u064A").replace(/ة/g, "\u0647").replace(/\s+/g, " ").trim().toLowerCase();
 }
@@ -1928,7 +1928,7 @@ var METHODS = ["\u0646\u0642\u062F\u064A", "\u062A\u062D\u0648\u064A\u0644 \u062
 var INVOICE_STATUSES = ["unpaid", "partial", "paid", "cancelled"];
 var BATCH_LIMIT3 = 450;
 var DEFAULT_PAGE_SIZE3 = 20;
-var FINANCE_TTL_MS = 3e4;
+var FINANCE_TTL_MS = 3e5;
 function deriveStatus(inv) {
   if (inv.status === "cancelled") return "cancelled";
   const paid = Number(inv.paid_amount || 0);
@@ -2376,7 +2376,7 @@ var payments_routes_default = router4;
 // backend/routes/classes.routes.ts
 var router5 = Router5();
 var BATCH_LIMIT4 = 450;
-var CLASSES_TTL_MS = 6e4;
+var CLASSES_TTL_MS = 6e5;
 router5.get(
   "/classes",
   wrap(async (_req, res) => {
@@ -2868,6 +2868,7 @@ var grades_routes_default = router7;
 import { Router as Router8 } from "express";
 import {
   doc as doc9,
+  getCountFromServer,
   getDoc as getDoc8,
   getDocs as getDocs10,
   limit as fsLimit4,
@@ -2902,6 +2903,27 @@ router8.get(
       "notifications by user, newest first"
     );
     res.json(rows);
+  })
+);
+router8.get(
+  "/notifications/:userId/unread-count",
+  requireAuth,
+  wrap(async (req, res) => {
+    if (req.user.id !== req.params.userId) throw forbidden("\u0644\u0627 \u064A\u0645\u0643\u0646\u0643 \u0639\u0631\u0636 \u0625\u0634\u0639\u0627\u0631\u0627\u062A \u0645\u0633\u062A\u062E\u062F\u0645 \u0622\u062E\u0631");
+    const unread = query11(
+      notificationsRef,
+      where11("user_id", "==", req.params.userId),
+      where11("isRead", "==", false)
+    );
+    try {
+      const snapshot = await getCountFromServer(unread);
+      return res.json({ count: snapshot.data().count });
+    } catch (err) {
+      if (err?.code !== "failed-precondition") throw err;
+      console.warn("[notifications] no index for the unread count \u2014 counting the hard way");
+      const rows = await fetchAll(unread);
+      return res.json({ count: rows.length });
+    }
   })
 );
 router8.post(
@@ -2953,7 +2975,7 @@ var DAYS = ["\u0627\u0644\u0623\u062D\u062F", "\u0627\u0644\u0625\u062B\u0646\u0
 router9.get(
   "/subjects",
   wrap(async (_req, res) => {
-    const subjects = await cached("subjects:all", 3e5, () => fetchAll(subjectsRef));
+    const subjects = await cached("subjects:all", 9e5, () => fetchAll(subjectsRef));
     res.json(subjects);
   })
 );
@@ -3477,7 +3499,7 @@ router12.get(
   requireAuth,
   requireRole("admin", "assistant_admin"),
   wrap(async (_req, res) => {
-    const payload = await cached("overview:school", 3e4, async () => {
+    const payload = await cached("overview:school", 3e5, async () => {
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
       const [users, classes, invoices, todayAttendance, registrations] = await Promise.all([
         fetchAll(usersRef),

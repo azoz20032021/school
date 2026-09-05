@@ -31,7 +31,7 @@ router.get(
   "/subjects",
   wrap(async (_req, res) => {
     // Read on nearly every page load and changes a few times a year.
-    const subjects = await cached("subjects:all", 300_000, () => fetchAll(subjectsRef));
+    const subjects = await cached("subjects:all", 900_000, () => fetchAll(subjectsRef));
     res.json(subjects);
   })
 );
