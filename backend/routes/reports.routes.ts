@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { doc, getDoc, query, where } from "firebase/firestore";
+import { doc, getDoc, orderBy, query, where } from "firebase/firestore";
 import {
   attendanceRef,
   behaviorRef,
@@ -7,6 +7,7 @@ import {
   db,
   enrollmentsRef,
   fetchAll,
+  fetchIndexed,
   getDocsByIds,
   gradesRef,
   invoicesRef,
@@ -14,6 +15,7 @@ import {
   registrationsRef,
   usersRef,
 } from "../lib/db.js";
+import { cached } from "../lib/cache.js";
 import { requireAuth, requireRole, requireSelfOrStaff, sanitizeUser } from "../lib/auth.js";
 import { notFound, wrap } from "../lib/http.js";
 import { netAmount, remainingAmount, CURRENCY } from "./payments.routes.js";
@@ -212,41 +214,53 @@ router.get(
   })
 );
 
-/** School-wide numbers for the admin landing page. */
+/**
+ * School-wide numbers for the admin landing page.
+ *
+ * Every figure here comes from counting a whole collection, so an uncached
+ * handler charged a full read of users, invoices and classes to each visit —
+ * and the dashboard is the first screen every member of staff opens in the
+ * morning. Half a minute of staleness on a headline count is invisible; the
+ * read cost is not.
+ */
 router.get(
   "/reports/overview",
   requireAuth,
   requireRole("admin", "assistant_admin"),
   wrap(async (_req, res) => {
-    const today = new Date().toISOString().slice(0, 10);
+    const payload = await cached("overview:school", 30_000, async () => {
+      const today = new Date().toISOString().slice(0, 10);
 
-    const [users, classes, invoices, todayAttendance, registrations] = await Promise.all([
-      fetchAll<any>(usersRef),
-      fetchAll<any>(classesRef),
-      fetchAll<any>(invoicesRef),
-      fetchAll<any>(query(attendanceRef, where("date", "==", today))),
-      fetchAll<any>(query(registrationsRef, where("status", "==", "pending"))),
-    ]);
+      const [users, classes, invoices, todayAttendance, registrations] = await Promise.all([
+        fetchAll<any>(usersRef),
+        fetchAll<any>(classesRef),
+        fetchAll<any>(invoicesRef),
+        fetchAll<any>(query(attendanceRef, where("date", "==", today))),
+        fetchAll<any>(query(registrationsRef, where("status", "==", "pending"))),
+      ]);
 
-    const activeInvoices = invoices.filter((i) => i.status !== "cancelled");
-    const billed = activeInvoices.reduce((sum, i) => sum + netAmount(i), 0);
-    const paid = activeInvoices.reduce((sum, i) => sum + Number(i.paid_amount || 0), 0);
+      const activeInvoices = invoices.filter((i) => i.status !== "cancelled");
+      const billed = activeInvoices.reduce((sum, i) => sum + netAmount(i), 0);
+      const paid = activeInvoices.reduce((sum, i) => sum + Number(i.paid_amount || 0), 0);
 
-    res.json({
-      currency: CURRENCY,
-      students: users.filter((u) => u.role === "student").length,
-      teachers: users.filter((u) => u.role === "teacher").length,
-      assistants: users.filter((u) => u.role === "assistant_admin").length,
-      classes: classes.length,
-      pending_registrations: registrations.length,
-      attendance_today: attendanceStats(todayAttendance),
-      finance: {
-        total_billed: billed,
-        total_collected: paid,
-        outstanding: Math.max(0, billed - paid),
-        collection_rate: billed > 0 ? Math.round((paid / billed) * 100) : 100,
-      },
+      return {
+        currency: CURRENCY,
+        students: users.filter((u) => u.role === "student").length,
+        teachers: users.filter((u) => u.role === "teacher").length,
+        assistants: users.filter((u) => u.role === "assistant_admin").length,
+        classes: classes.length,
+        pending_registrations: registrations.length,
+        attendance_today: attendanceStats(todayAttendance),
+        finance: {
+          total_billed: billed,
+          total_collected: paid,
+          outstanding: Math.max(0, billed - paid),
+          collection_rate: billed > 0 ? Math.round((paid / billed) * 100) : 100,
+        },
+      };
     });
+
+    res.json(payload);
   })
 );
 
@@ -260,10 +274,31 @@ router.get(
     const to = v.isoDate(req.query.to, "إلى تاريخ");
     const classId = req.query.class_id ? String(req.query.class_id) : null;
 
-    const records = await fetchAll<any>(
-      classId ? query(attendanceRef, where("class_id", "==", classId)) : attendanceRef
-    );
-    const inRange = records.filter((r) => r.date >= from && r.date <= to);
+    /**
+     * The range belongs in the query. Reading the whole attendance collection
+     * and filtering in memory cost one document read per student per school
+     * day ever recorded, just to print a single month. The class-filtered form
+     * needs a composite index, so it falls back to the old behaviour if that
+     * index has not been deployed yet.
+     */
+    const inRange = classId
+      ? await fetchIndexed<any>(
+          query(
+            attendanceRef,
+            where("class_id", "==", classId),
+            where("date", ">=", from),
+            where("date", "<=", to),
+            orderBy("date")
+          ),
+          async () => {
+            const all = await fetchAll<any>(query(attendanceRef, where("class_id", "==", classId)));
+            return all.filter((r) => r.date >= from && r.date <= to);
+          },
+          "attendance by class over a date range"
+        )
+      : await fetchAll<any>(
+          query(attendanceRef, where("date", ">=", from), where("date", "<=", to), orderBy("date"))
+        );
 
     const byStudent = new Map<string, any[]>();
     inRange.forEach((r) => {

@@ -634,4 +634,27 @@ export const en: Record<string, string> = {
   "تحميل المزيد من الدرجات": "Load more grades",
   "جاري التحميل...": "Loading...",
   "لا توجد نتائج أخرى": "No more results",
+
+  /* --------------------------- student search / pickers --------------------------- */
+  "ابحث باسم الطالب أو رقمه التعريفي": "Search by student name or UID",
+  "إلغاء الاختيار": "Clear selection",
+  "لا يوجد طالب مطابق": "No matching student",
+  "لا يوجد طالب مطابق للبحث": "No student matches your search",
+  "لا يوجد طلاب مسجلون بعد": "No students registered yet",
+  "لا يوجد طلاب مطابقون": "No matching students",
+  "تعذر تحميل قائمة الطلاب، حدّث الصفحة وحاول مرة أخرى": "Could not load the student list — refresh the page and try again",
+  "يعرض {shown} من {total} طالب — اكتب للبحث": "Showing {shown} of {total} students — type to search",
+  "يعرض {shown} من {total} طالب": "Showing {shown} of {total} students",
+  "({shown} من {total})": "({shown} of {total})",
+  "طالب محدد (اختياري)": "A specific student (optional)",
+  "اتركه فارغاً ليشمل الكشف كل الطلاب": "Leave empty to cover every student",
+  "اعرض من عليهم مستحقات فقط": "Only those with dues",
+  "متبقٍ على القائمة": "Outstanding in this list",
+
+  /* ------------------------- single-student debt statement ------------------------- */
+  "بدون اسم": "Unnamed",
+  "كشف ديون طالب": "Student debt statement",
+  "لا توجد رسوم مسجلة على هذا الطالب": "No fees recorded for this student",
+  "الدفعات المستلمة": "Payments received",
+  "لا توجد دفعات مسجلة": "No payments recorded",
 };

@@ -8,16 +8,20 @@ config();
 
 // backend/app.ts
 import express from "express";
-import { addDoc as addDoc9, getDocs as getDocs10, limit as fsLimit4, query as query13, serverTimestamp as serverTimestamp11, where as where13 } from "firebase/firestore";
+import { addDoc as addDoc9, getDocs as getDocs10, limit as fsLimit5, query as query14, serverTimestamp as serverTimestamp11, where as where14 } from "firebase/firestore";
 
 // backend/lib/db.ts
 import { initializeApp, getApps, getApp } from "firebase/app";
 import {
   getFirestore,
   collection,
+  doc as fsDoc,
   documentId,
+  getDoc,
   getDocs,
+  limit as fsLimit,
   query,
+  startAfter,
   where
 } from "firebase/firestore";
 var firebaseConfig = {
@@ -119,6 +123,23 @@ async function fetchIndexed(indexed, fallback, label) {
     );
     return fallback();
   }
+}
+async function fetchPage(q, pageSize, cursorId, collectionRef) {
+  let paged = query(q, fsLimit(pageSize + 1));
+  if (cursorId && collectionRef) {
+    const cursorSnap = await getDoc(fsDoc(collectionRef, cursorId));
+    if (cursorSnap.exists()) {
+      paged = query(q, startAfter(cursorSnap), fsLimit(pageSize + 1));
+    }
+  }
+  const snap = await getDocs(paged);
+  const docs = mapSnapshot(snap);
+  const hasMore = docs.length > pageSize;
+  if (hasMore) docs.pop();
+  return {
+    data: docs,
+    nextCursor: hasMore ? docs[docs.length - 1]?.id ?? null : null
+  };
 }
 
 // backend/lib/auth.ts
@@ -753,9 +774,10 @@ import crypto2 from "node:crypto";
 import {
   addDoc as addDoc2,
   doc as doc2,
-  getDoc,
+  getDoc as getDoc2,
   getDocs as getDocs3,
-  limit as fsLimit,
+  limit as fsLimit2,
+  orderBy as orderBy2,
   query as query3,
   runTransaction,
   serverTimestamp as serverTimestamp3,
@@ -805,7 +827,7 @@ async function allocateStudentUid() {
   });
   let candidate = `${yearPrefix}${String(seq).padStart(4, "0")}`;
   for (let attempt = 0; attempt < 20; attempt++) {
-    const clash = await getDocs3(query3(usersRef, where3("uid", "==", candidate), fsLimit(1)));
+    const clash = await getDocs3(query3(usersRef, where3("uid", "==", candidate), fsLimit2(1)));
     if (clash.empty) return candidate;
     candidate = `${yearPrefix}${String(seq + attempt + 1).padStart(4, "0")}`;
   }
@@ -839,9 +861,9 @@ router2.post(
     const requestedClassId = str(b.requested_class_id, "\u0627\u0644\u0635\u0641 \u0627\u0644\u0645\u0637\u0644\u0648\u0628", { max: 64, optional: true });
     const [dupApplication, dupUser] = await Promise.all([
       getDocs3(
-        query3(registrationsRef, where3("national_id", "==", application.national_id), fsLimit(5))
+        query3(registrationsRef, where3("national_id", "==", application.national_id), fsLimit2(5))
       ),
-      getDocs3(query3(usersRef, where3("national_id", "==", application.national_id), fsLimit(1)))
+      getDocs3(query3(usersRef, where3("national_id", "==", application.national_id), fsLimit2(1)))
     ]);
     if (!dupUser.empty) {
       throw badRequest("\u064A\u0648\u062C\u062F \u062D\u0633\u0627\u0628 \u0645\u0633\u062C\u0644 \u0645\u0633\u0628\u0642\u0627\u064B \u0628\u0646\u0641\u0633 \u0631\u0642\u0645 \u0627\u0644\u0647\u0648\u064A\u0629. \u064A\u0631\u062C\u0649 \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062F\u062E\u0648\u0644 \u0623\u0648 \u0645\u0631\u0627\u062C\u0639\u0629 \u0627\u0644\u0625\u062F\u0627\u0631\u0629.");
@@ -854,7 +876,7 @@ router2.post(
     }
     let requestedClassName = "";
     if (requestedClassId) {
-      const classDoc = await getDoc(doc2(db, "classes", requestedClassId));
+      const classDoc = await getDoc2(doc2(db, "classes", requestedClassId));
       if (!classDoc.exists()) throw badRequest("\u0627\u0644\u0635\u0641 \u0627\u0644\u0645\u062E\u062A\u0627\u0631 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
       requestedClassName = classDoc.data().name;
     }
@@ -886,7 +908,7 @@ router2.get(
   rateLimit({ windowMs: 10 * 60 * 1e3, max: 40, keyPrefix: "regstatus" }),
   wrap(async (req, res) => {
     const code = str(req.params.code, "\u0631\u0642\u0645 \u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629", { min: 4, max: 32 }).toUpperCase();
-    const snapshot = await getDocs3(query3(registrationsRef, where3("tracking_code", "==", code), fsLimit(1)));
+    const snapshot = await getDocs3(query3(registrationsRef, where3("tracking_code", "==", code), fsLimit2(1)));
     if (snapshot.empty) throw notFound("\u0644\u0627 \u064A\u0648\u062C\u062F \u0637\u0644\u0628 \u0628\u0647\u0630\u0627 \u0627\u0644\u0631\u0642\u0645. \u062A\u0623\u0643\u062F \u0645\u0646 \u0631\u0642\u0645 \u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629.");
     const data = snapshot.docs[0].data();
     res.json({
@@ -901,22 +923,25 @@ router2.get(
     });
   })
 );
+var DEFAULT_PAGE_SIZE = 25;
 router2.get(
   "/admin/registrations",
   requireStaff,
   wrap(async (req, res) => {
+    const pageSize = num(req.query.limit, "\u0627\u0644\u062D\u062F", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE });
+    const cursor = req.query.after ? String(req.query.after) : null;
     const status = req.query.status ? oneOf(req.query.status, "\u0627\u0644\u062D\u0627\u0644\u0629", STATUSES) : null;
-    const q = status ? query3(registrationsRef, where3("status", "==", status)) : registrationsRef;
-    const rows = await fetchAll(q);
-    rows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-    res.json(rows.map(({ password: password2, ...safe }) => safe));
+    const filters = status ? [where3("status", "==", status)] : [];
+    const q = query3(registrationsRef, ...filters, orderBy2("createdAt", "desc"));
+    const { data, nextCursor } = await fetchPage(q, pageSize, cursor, registrationsRef);
+    res.json({ data: data.map(({ password: password2, ...safe }) => safe), nextCursor });
   })
 );
 router2.get(
   "/admin/registrations/:id",
   requireStaff,
   wrap(async (req, res) => {
-    const snap = await getDoc(doc2(db, "registrations", req.params.id));
+    const snap = await getDoc2(doc2(db, "registrations", req.params.id));
     if (!snap.exists()) throw notFound("\u0637\u0644\u0628 \u0627\u0644\u062A\u0633\u062C\u064A\u0644 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const { password: password2, ...safe } = snap.data();
     res.json({ id: snap.id, ...safe });
@@ -927,7 +952,7 @@ router2.post(
   requireStaff,
   wrap(async (req, res) => {
     const registrationDoc = doc2(db, "registrations", req.params.id);
-    const snap = await getDoc(registrationDoc);
+    const snap = await getDoc2(registrationDoc);
     if (!snap.exists()) throw notFound("\u0637\u0644\u0628 \u0627\u0644\u062A\u0633\u062C\u064A\u0644 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const data = snap.data();
     if (data.status !== "pending") {
@@ -938,7 +963,7 @@ router2.post(
       optional: true
     });
     if (!classId) throw badRequest("\u064A\u062C\u0628 \u062A\u062D\u062F\u064A\u062F \u0627\u0644\u0635\u0641 \u0627\u0644\u062F\u0631\u0627\u0633\u064A \u0642\u0628\u0644 \u0627\u0644\u0645\u0648\u0627\u0641\u0642\u0629");
-    const classDoc = await getDoc(doc2(db, "classes", classId));
+    const classDoc = await getDoc2(doc2(db, "classes", classId));
     if (!classDoc.exists()) throw badRequest("\u0627\u0644\u0635\u0641 \u0627\u0644\u0645\u062E\u062A\u0627\u0631 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const uid = await allocateStudentUid();
     const newUser = await addDoc2(usersRef, {
@@ -1013,6 +1038,7 @@ router2.post(
       });
     }
     invalidate("students");
+    invalidate("finance");
     audit(req, {
       action: "approve",
       entity: "registration",
@@ -1029,7 +1055,7 @@ router2.post(
   wrap(async (req, res) => {
     const reason = str(req.body?.reason, "\u0633\u0628\u0628 \u0627\u0644\u0631\u0641\u0636", { min: 3, max: 500 });
     const registrationDoc = doc2(db, "registrations", req.params.id);
-    const snap = await getDoc(registrationDoc);
+    const snap = await getDoc2(registrationDoc);
     if (!snap.exists()) throw notFound("\u0637\u0644\u0628 \u0627\u0644\u062A\u0633\u062C\u064A\u0644 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const data = snap.data();
     if (data.status !== "pending") throw badRequest("\u062A\u0645\u062A \u0645\u0639\u0627\u0644\u062C\u0629 \u0647\u0630\u0627 \u0627\u0644\u0637\u0644\u0628 \u0645\u0633\u0628\u0642\u0627\u064B");
@@ -1055,7 +1081,7 @@ router2.delete(
   requireAdmin,
   wrap(async (req, res) => {
     const registrationDoc = doc2(db, "registrations", req.params.id);
-    const snap = await getDoc(registrationDoc);
+    const snap = await getDoc2(registrationDoc);
     if (!snap.exists()) throw notFound("\u0637\u0644\u0628 \u0627\u0644\u062A\u0633\u062C\u064A\u0644 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     await updateDoc2(registrationDoc, {
       archived: true,
@@ -1079,31 +1105,122 @@ import {
   addDoc as addDoc3,
   deleteDoc,
   doc as doc3,
-  getDoc as getDoc2,
+  getDoc as getDoc3,
   getDocs as getDocs4,
-  limit as fsLimit2,
-  orderBy,
-  query as query4,
+  limit as fsLimit3,
+  orderBy as orderBy3,
+  query as query5,
   serverTimestamp as serverTimestamp4,
   updateDoc as updateDoc3,
-  where as where4,
+  where as where5,
   writeBatch
 } from "firebase/firestore";
+
+// backend/lib/roster.ts
+import { query as query4, where as where4 } from "firebase/firestore";
+var ROSTER_TTL_MS = 6e4;
+function normalizeArabic(text) {
+  return String(text ?? "").replace(/[ً-ْٰـ]/g, "").replace(/[إأآٱا]/g, "\u0627").replace(/[ىی]/g, "\u064A").replace(/ؤ/g, "\u0648").replace(/ئ/g, "\u064A").replace(/ة/g, "\u0647").replace(/\s+/g, " ").trim().toLowerCase();
+}
+function matchesStudent(student, needle) {
+  if (!needle) return true;
+  return normalizeArabic(student.name).includes(needle) || String(student.uid ?? "").toLowerCase().includes(needle);
+}
+var byName = (a, b) => String(a.name ?? "").localeCompare(String(b.name ?? ""), "ar");
+async function studentRoster() {
+  return cached("students:roster", ROSTER_TTL_MS, async () => {
+    const [students, enrollments, classes] = await Promise.all([
+      fetchAll(query4(usersRef, where4("role", "==", "student"))),
+      fetchAll(enrollmentsRef),
+      fetchAll(classesRef)
+    ]);
+    const classNames = new Map(classes.map((c) => [c.id, c.name]));
+    const classByStudent = new Map(enrollments.map((e) => [e.student_id, e.class_id]));
+    return students.map((s) => {
+      const classId = classByStudent.get(s.id) || null;
+      return {
+        ...sanitizeUser(s),
+        class_id: classId,
+        class_name: classId && classNames.get(classId) || "\u063A\u064A\u0631 \u0645\u0639\u064A\u0651\u0646"
+      };
+    }).sort(byName);
+  });
+}
+async function teacherRoster() {
+  return cached("teachers:roster", ROSTER_TTL_MS, async () => {
+    const teachers = await fetchAll(
+      query4(usersRef, where4("role", "==", "teacher"))
+    );
+    return teachers.map((t) => sanitizeUser(t)).sort(byName);
+  });
+}
+function paginate(rows, offset, pageSize) {
+  const start = Math.max(0, offset);
+  const page = rows.slice(start, start + pageSize);
+  const next = start + pageSize;
+  return {
+    data: page,
+    total: rows.length,
+    nextCursor: next < rows.length ? String(next) : null
+  };
+}
+
+// backend/routes/admin.routes.ts
 var router3 = Router3();
 var BATCH_LIMIT = 450;
+var DEFAULT_PAGE_SIZE2 = 25;
 router3.get(
   "/admin/students",
   requireStaff,
-  wrap(async (_req, res) => {
-    const students = await fetchAll(query4(usersRef, where4("role", "==", "student")));
-    res.json(students.map(sanitizeUser).sort((a, b) => String(a.name).localeCompare(String(b.name), "ar")));
+  wrap(async (req, res) => {
+    const pageSize = num(req.query.limit, "\u0627\u0644\u062D\u062F", { min: 1, max: 200, optional: true, default: DEFAULT_PAGE_SIZE2 });
+    const offset = num(req.query.after ?? req.query.offset, "\u0627\u0644\u0625\u0632\u0627\u062D\u0629", {
+      min: 0,
+      max: 1e6,
+      optional: true,
+      default: 0
+    });
+    const search = normalizeArabic(req.query.search);
+    const classId = req.query.class_id ? String(req.query.class_id) : null;
+    const roster = await studentRoster();
+    const matched = roster.filter(
+      (s) => (!classId || s.class_id === classId) && matchesStudent(s, search)
+    );
+    res.json(paginate(matched, offset, pageSize));
+  })
+);
+router3.get(
+  "/admin/students/lookup",
+  requireRole("admin", "assistant_admin", "teacher"),
+  wrap(async (req, res) => {
+    const roster = await studentRoster();
+    let visible = roster;
+    if (req.user.role === "teacher") {
+      const teacherId = req.user.id;
+      const [assigned, legacy] = await Promise.all([
+        fetchAll(query5(classesRef, where5("teacher_ids", "array-contains", teacherId))),
+        fetchAll(query5(classesRef, where5("teacher_id", "==", teacherId)))
+      ]);
+      const classIds = new Set([...assigned, ...legacy].map((c) => c.id));
+      visible = roster.filter((s) => s.class_id && classIds.has(s.class_id));
+    }
+    res.json(
+      visible.map((s) => ({
+        id: s.id,
+        name: s.name,
+        uid: s.uid,
+        class_id: s.class_id,
+        class_name: s.class_name,
+        guardian_phone: s.guardian_phone || ""
+      }))
+    );
   })
 );
 router3.get(
   "/admin/students/:id",
   requireStaff,
   wrap(async (req, res) => {
-    const snap = await getDoc2(doc3(db, "users", req.params.id));
+    const snap = await getDoc3(doc3(db, "users", req.params.id));
     if (!snap.exists() || snap.data().role !== "student") throw notFound("\u0627\u0644\u0637\u0627\u0644\u0628 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     res.json(sanitizeUser({ id: snap.id, ...snap.data() }));
   })
@@ -1115,7 +1232,7 @@ router3.post(
     const name = str(req.body?.name, "\u0627\u0633\u0645 \u0627\u0644\u0637\u0627\u0644\u0628", { min: 3, max: 120 });
     const uid = str(req.body?.uid, "\u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u062A\u0639\u0631\u064A\u0641\u064A", { min: 3, max: 64 });
     const plain = password(req.body?.password);
-    const clash = await getDocs4(query4(usersRef, where4("uid", "==", uid), fsLimit2(1)));
+    const clash = await getDocs4(query5(usersRef, where5("uid", "==", uid), fsLimit3(1)));
     if (!clash.empty) throw badRequest("\u0647\u0630\u0627 \u0627\u0644\u0640 UID \u0645\u0633\u062A\u062E\u062F\u0645 \u0628\u0627\u0644\u0641\u0639\u0644\u060C \u064A\u0631\u062C\u0649 \u0627\u062E\u062A\u064A\u0627\u0631 \u0648\u0627\u062D\u062F \u0622\u062E\u0631");
     const created = await addDoc3(usersRef, {
       name,
@@ -1144,7 +1261,7 @@ router3.put(
   requireStaff,
   wrap(async (req, res) => {
     const target = doc3(db, "users", req.params.id);
-    const snap = await getDoc2(target);
+    const snap = await getDoc3(target);
     if (!snap.exists() || snap.data().role !== "student") throw notFound("\u0627\u0644\u0637\u0627\u0644\u0628 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const b = req.body || {};
     const patch = {};
@@ -1180,11 +1297,11 @@ router3.delete(
   requireAdmin,
   wrap(async (req, res) => {
     const studentId = req.params.id;
-    const snap = await getDoc2(doc3(db, "users", studentId));
+    const snap = await getDoc3(doc3(db, "users", studentId));
     if (!snap.exists()) throw notFound("\u0627\u0644\u0637\u0627\u0644\u0628 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const related = await Promise.all([
-      getDocs4(query4(enrollmentsRef, where4("student_id", "==", studentId))),
-      getDocs4(query4(notificationsRef, where4("user_id", "==", studentId)))
+      getDocs4(query5(enrollmentsRef, where5("student_id", "==", studentId))),
+      getDocs4(query5(notificationsRef, where5("user_id", "==", studentId)))
     ]);
     const refs = related.flatMap((s) => s.docs.map((d) => d.ref));
     for (const group of chunk(refs, BATCH_LIMIT)) {
@@ -1206,9 +1323,18 @@ router3.delete(
 router3.get(
   "/admin/teachers",
   requireStaff,
-  wrap(async (_req, res) => {
-    const teachers = await fetchAll(query4(usersRef, where4("role", "==", "teacher")));
-    res.json(teachers.map(sanitizeUser));
+  wrap(async (req, res) => {
+    const pageSize = num(req.query.limit, "\u0627\u0644\u062D\u062F", { min: 1, max: 200, optional: true, default: DEFAULT_PAGE_SIZE2 });
+    const offset = num(req.query.after ?? req.query.offset, "\u0627\u0644\u0625\u0632\u0627\u062D\u0629", {
+      min: 0,
+      max: 1e6,
+      optional: true,
+      default: 0
+    });
+    const search = normalizeArabic(req.query.search);
+    const roster = await teacherRoster();
+    const matched = search ? roster.filter((teacher) => normalizeArabic(teacher.name).includes(search)) : roster;
+    res.json(paginate(matched, offset, pageSize));
   })
 );
 router3.post(
@@ -1230,6 +1356,7 @@ router3.post(
       phone: phone(req.body?.phone, "\u0631\u0642\u0645 \u0627\u0644\u0647\u0627\u062A\u0641", { optional: true }),
       createdAt: serverTimestamp4()
     });
+    invalidate("teachers");
     audit(req, { action: "create", entity: "teacher", entityId: created.id, summary: `\u0625\u0636\u0627\u0641\u0629 \u0645\u0639\u0644\u0645 ${name} (${uid})` });
     res.status(201).json({ success: true, id: created.id, uid });
   })
@@ -1239,7 +1366,7 @@ router3.put(
   requireAdmin,
   wrap(async (req, res) => {
     const target = doc3(db, "users", req.params.id);
-    const snap = await getDoc2(target);
+    const snap = await getDoc3(target);
     if (!snap.exists()) throw notFound("\u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const patch = {};
     if (req.body?.name !== void 0) patch.name = str(req.body.name, "\u0627\u0644\u0627\u0633\u0645", { min: 3, max: 120 });
@@ -1251,6 +1378,7 @@ router3.put(
     if (Object.keys(patch).length === 0) throw badRequest("\u0644\u0627 \u062A\u0648\u062C\u062F \u0628\u064A\u0627\u0646\u0627\u062A \u0644\u0644\u062A\u062D\u062F\u064A\u062B");
     patch.updatedAt = serverTimestamp4();
     await updateDoc3(target, patch);
+    invalidate("teachers");
     audit(req, {
       action: "update",
       entity: "teacher",
@@ -1267,7 +1395,7 @@ router3.delete(
   wrap(async (req, res) => {
     const teacherId = req.params.id;
     if (teacherId === req.user.id) throw badRequest("\u0644\u0627 \u064A\u0645\u0643\u0646\u0643 \u062D\u0630\u0641 \u062D\u0633\u0627\u0628\u0643 \u0627\u0644\u062E\u0627\u0635");
-    const snap = await getDoc2(doc3(db, "users", teacherId));
+    const snap = await getDoc3(doc3(db, "users", teacherId));
     if (!snap.exists()) throw notFound("\u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const classes = await fetchAll(classesRef);
     const affected = classes.filter(
@@ -1291,6 +1419,7 @@ router3.delete(
     }
     await deleteDoc(doc3(db, "users", teacherId));
     invalidate("classes");
+    invalidate("teachers");
     audit(req, {
       action: "delete",
       entity: "user",
@@ -1304,7 +1433,7 @@ router3.get(
   "/admin/assistants",
   requireAdmin,
   wrap(async (_req, res) => {
-    const rows = await fetchAll(query4(usersRef, where4("role", "==", "assistant_admin")));
+    const rows = await fetchAll(query5(usersRef, where5("role", "==", "assistant_admin")));
     res.json(rows.map(sanitizeUser));
   })
 );
@@ -1340,7 +1469,7 @@ router3.post(
   wrap(async (req, res) => {
     const newPassword = password(req.body?.new_password, "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u0627\u0644\u062C\u062F\u064A\u062F\u0629");
     const target = doc3(db, "users", req.params.id);
-    const snap = await getDoc2(target);
+    const snap = await getDoc3(target);
     if (!snap.exists()) throw notFound("\u0627\u0644\u0645\u0633\u062A\u062E\u062F\u0645 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     await updateDoc3(target, {
       password: hashPassword(newPassword),
@@ -1377,11 +1506,11 @@ router3.post(
       recipients = [studentId];
     } else if (classId) {
       const enrollments = await fetchAll(
-        query4(enrollmentsRef, where4("class_id", "==", classId))
+        query5(enrollmentsRef, where5("class_id", "==", classId))
       );
       recipients = [...new Set(enrollments.map((e) => e.student_id))];
     } else {
-      const students = await fetchAll(query4(usersRef, where4("role", "==", "student")));
+      const students = await fetchAll(query5(usersRef, where5("role", "==", "student")));
       recipients = students.map((s) => s.id);
     }
     if (recipients.length === 0) return res.json({ success: true, count: 0 });
@@ -1414,13 +1543,13 @@ router3.get(
   wrap(async (req, res) => {
     const max = num(req.query.limit, "\u0627\u0644\u062D\u062F", { min: 1, max: 500, optional: true, default: 100 });
     const filters = [];
-    if (req.query.action) filters.push(where4("action", "==", String(req.query.action)));
-    if (req.query.actor_id) filters.push(where4("actor_id", "==", String(req.query.actor_id)));
+    if (req.query.action) filters.push(where5("action", "==", String(req.query.action)));
+    if (req.query.actor_id) filters.push(where5("actor_id", "==", String(req.query.actor_id)));
     const rows = await fetchIndexed(
-      query4(auditRef, ...filters, orderBy("createdAt", "desc"), fsLimit2(max)),
+      query5(auditRef, ...filters, orderBy3("createdAt", "desc"), fsLimit3(max)),
       async () => {
         const all = await fetchAll(
-          filters.length ? query4(auditRef, ...filters) : auditRef
+          filters.length ? query5(auditRef, ...filters) : auditRef
         );
         all.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
         return all.slice(0, max);
@@ -1461,7 +1590,7 @@ router3.post(
   requireStaff,
   wrap(async (req, res) => {
     const uid = str(req.body?.uid, "\u0627\u0644\u0631\u0642\u0645 \u0627\u0644\u062A\u0639\u0631\u064A\u0641\u064A", { min: 1, max: 64 });
-    const clash = await getDocs4(query4(validUidsRef, where4("uid", "==", uid), fsLimit2(1)));
+    const clash = await getDocs4(query5(validUidsRef, where5("uid", "==", uid), fsLimit3(1)));
     if (!clash.empty) throw badRequest("\u0647\u0630\u0627 \u0627\u0644\u0640 UID \u0645\u0648\u062C\u0648\u062F \u0628\u0627\u0644\u0641\u0639\u0644");
     await addDoc3(validUidsRef, { uid, used: false, createdAt: serverTimestamp4() });
     audit(req, { action: "create", entity: "valid_uid", summary: `\u0625\u0636\u0627\u0641\u0629 \u0631\u0642\u0645 \u062A\u0639\u0631\u064A\u0641\u064A ${uid}` });
@@ -1485,12 +1614,12 @@ import {
   addDoc as addDoc5,
   deleteDoc as deleteDoc2,
   doc as doc5,
-  getDoc as getDoc4,
+  getDoc as getDoc5,
   getDocs as getDocs6,
-  query as query6,
+  query as query7,
   serverTimestamp as serverTimestamp6,
   updateDoc as updateDoc5,
-  where as where6,
+  where as where7,
   writeBatch as writeBatch3
 } from "firebase/firestore";
 
@@ -1499,12 +1628,13 @@ import { Router as Router4 } from "express";
 import {
   addDoc as addDoc4,
   doc as doc4,
-  getDoc as getDoc3,
-  query as query5,
+  getDoc as getDoc4,
+  orderBy as orderBy4,
+  query as query6,
   runTransaction as runTransaction2,
   serverTimestamp as serverTimestamp5,
   updateDoc as updateDoc4,
-  where as where5,
+  where as where6,
   writeBatch as writeBatch2
 } from "firebase/firestore";
 var router4 = Router4();
@@ -1513,6 +1643,8 @@ var CATEGORIES = ["\u0642\u0633\u0637 \u062F\u0631\u0627\u0633\u064A", "\u0631\u
 var METHODS = ["\u0646\u0642\u062F\u064A", "\u062A\u062D\u0648\u064A\u0644 \u0628\u0646\u0643\u064A", "\u0645\u062D\u0641\u0638\u0629 \u0625\u0644\u0643\u062A\u0631\u0648\u0646\u064A\u0629", "\u0634\u064A\u0643"];
 var INVOICE_STATUSES = ["unpaid", "partial", "paid", "cancelled"];
 var BATCH_LIMIT2 = 450;
+var DEFAULT_PAGE_SIZE3 = 25;
+var FINANCE_TTL_MS = 3e4;
 function netAmount(inv) {
   return Math.max(0, Number(inv.amount || 0) - Number(inv.discount || 0));
 }
@@ -1532,19 +1664,20 @@ router4.get(
   "/admin/invoices",
   requireStaff,
   wrap(async (req, res) => {
+    const pageSize = num(req.query.limit, "\u0627\u0644\u062D\u062F", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE3 });
+    const cursor = req.query.after ? String(req.query.after) : null;
     const filters = [];
-    if (req.query.student_id) filters.push(where5("student_id", "==", String(req.query.student_id)));
-    if (req.query.class_id) filters.push(where5("class_id", "==", String(req.query.class_id)));
+    if (req.query.student_id) filters.push(where6("student_id", "==", String(req.query.student_id)));
+    if (req.query.class_id) filters.push(where6("class_id", "==", String(req.query.class_id)));
     if (req.query.status) {
-      filters.push(where5("status", "==", oneOf(req.query.status, "\u0627\u0644\u062D\u0627\u0644\u0629", INVOICE_STATUSES)));
+      filters.push(where6("status", "==", oneOf(req.query.status, "\u0627\u0644\u062D\u0627\u0644\u0629", INVOICE_STATUSES)));
     }
-    const rows = await fetchAll(
-      filters.length ? query5(invoicesRef, ...filters) : invoicesRef
-    );
-    rows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-    res.json(
-      rows.map((inv) => ({ ...inv, net_amount: netAmount(inv), remaining: remainingAmount(inv) }))
-    );
+    const q = query6(invoicesRef, ...filters, orderBy4("createdAt", "desc"));
+    const { data, nextCursor } = await fetchPage(q, pageSize, cursor, invoicesRef);
+    res.json({
+      data: data.map((inv) => ({ ...inv, net_amount: netAmount(inv), remaining: remainingAmount(inv) })),
+      nextCursor
+    });
   })
 );
 router4.post(
@@ -1572,11 +1705,11 @@ router4.post(
     } else if (target === "class") {
       classId = str(b.class_id, "\u0627\u0644\u0635\u0641", { max: 64 });
       const enrollments2 = await fetchAll(
-        query5(enrollmentsRef, where5("class_id", "==", classId))
+        query6(enrollmentsRef, where6("class_id", "==", classId))
       );
       studentIds = [...new Set(enrollments2.map((e) => e.student_id))];
     } else {
-      const students2 = await fetchAll(query5(usersRef, where5("role", "==", "student")));
+      const students2 = await fetchAll(query6(usersRef, where6("role", "==", "student")));
       studentIds = students2.filter((s) => s.status !== "suspended").map((s) => s.id);
     }
     if (studentIds.length === 0) throw badRequest("\u0644\u0627 \u064A\u0648\u062C\u062F \u0637\u0644\u0627\u0628 \u0645\u0637\u0627\u0628\u0642\u0648\u0646 \u0644\u0625\u0635\u062F\u0627\u0631 \u0627\u0644\u0631\u0633\u0648\u0645 \u0644\u0647\u0645");
@@ -1625,6 +1758,7 @@ router4.post(
       }
       await batch.commit();
     }
+    invalidate("finance");
     audit(req, {
       action: "create",
       entity: "invoice",
@@ -1639,7 +1773,7 @@ router4.put(
   requireStaff,
   wrap(async (req, res) => {
     const invoiceDoc = doc4(db, "invoices", req.params.id);
-    const snap = await getDoc3(invoiceDoc);
+    const snap = await getDoc4(invoiceDoc);
     if (!snap.exists()) throw notFound("\u0633\u0646\u062F \u0627\u0644\u0631\u0633\u0648\u0645 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const current = snap.data();
     const b = req.body || {};
@@ -1658,6 +1792,7 @@ router4.put(
     patch.status = deriveStatus(merged);
     patch.updatedAt = serverTimestamp5();
     await updateDoc4(invoiceDoc, patch);
+    invalidate("finance");
     audit(req, {
       action: "update",
       entity: "invoice",
@@ -1673,7 +1808,7 @@ router4.delete(
   requireAdmin,
   wrap(async (req, res) => {
     const invoiceDoc = doc4(db, "invoices", req.params.id);
-    const snap = await getDoc3(invoiceDoc);
+    const snap = await getDoc4(invoiceDoc);
     if (!snap.exists()) throw notFound("\u0633\u0646\u062F \u0627\u0644\u0631\u0633\u0648\u0645 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const data = snap.data();
     if (Number(data.paid_amount || 0) > 0) {
@@ -1684,6 +1819,7 @@ router4.delete(
       cancelled_by: req.user.id,
       cancelled_at: serverTimestamp5()
     });
+    invalidate("finance");
     audit(req, {
       action: "delete",
       entity: "invoice",
@@ -1744,6 +1880,7 @@ router4.post(
       isRead: false,
       createdAt: serverTimestamp5()
     });
+    invalidate("finance");
     audit(req, {
       action: "payment",
       entity: "invoice",
@@ -1759,7 +1896,7 @@ router4.get(
   requireStaff,
   wrap(async (req, res) => {
     const rows = await fetchAll(
-      query5(paymentsRef, where5("invoice_id", "==", req.params.id))
+      query6(paymentsRef, where6("invoice_id", "==", req.params.id))
     );
     rows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
     res.json(rows);
@@ -1788,10 +1925,29 @@ router4.delete(
       tx.delete(paymentDoc);
       return `\u0625\u0631\u062C\u0627\u0639 \u062F\u0641\u0639\u0629 ${payment.amount} ${CURRENCY} \u0644\u0644\u0637\u0627\u0644\u0628 ${payment.student_name}`;
     });
+    invalidate("finance");
     audit(req, { action: "delete", entity: "payment", entityId: req.params.id, summary });
     res.json({ success: true });
   })
 );
+async function invoiceTotalsByStudent() {
+  const invoices = await cached(
+    "finance:invoices",
+    FINANCE_TTL_MS,
+    () => fetchAll(invoicesRef)
+  );
+  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const totals = /* @__PURE__ */ new Map();
+  for (const inv of invoices) {
+    if (inv.status === "cancelled") continue;
+    const entry = totals.get(inv.student_id) || { billed: 0, paid: 0, overdue: 0 };
+    entry.billed += netAmount(inv);
+    entry.paid += Number(inv.paid_amount || 0);
+    if (inv.due_date && inv.due_date < today) entry.overdue += remainingAmount(inv);
+    totals.set(inv.student_id, entry);
+  }
+  return totals;
+}
 router4.get(
   "/student/:studentId/finance",
   requireAuth,
@@ -1799,8 +1955,8 @@ router4.get(
   wrap(async (req, res) => {
     const studentId = req.params.studentId;
     const [invoices, payments] = await Promise.all([
-      fetchAll(query5(invoicesRef, where5("student_id", "==", studentId))),
-      fetchAll(query5(paymentsRef, where5("student_id", "==", studentId)))
+      fetchAll(query6(invoicesRef, where6("student_id", "==", studentId))),
+      fetchAll(query6(paymentsRef, where6("student_id", "==", studentId)))
     ]);
     const active = invoices.filter((i) => i.status !== "cancelled");
     const totalBilled = active.reduce((sum, i) => sum + netAmount(i), 0);
@@ -1829,7 +1985,11 @@ router4.get(
   "/admin/finance/summary",
   requireStaff,
   wrap(async (req, res) => {
-    const invoices = await fetchAll(invoicesRef);
+    const invoices = await cached(
+      "finance:invoices",
+      FINANCE_TTL_MS,
+      () => fetchAll(invoicesRef)
+    );
     const active = invoices.filter((i) => i.status !== "cancelled");
     const totalBilled = active.reduce((sum, i) => sum + netAmount(i), 0);
     const totalPaid = active.reduce((sum, i) => sum + Number(i.paid_amount || 0), 0);
@@ -1864,25 +2024,18 @@ router4.get(
   requireStaff,
   wrap(async (req, res) => {
     const classFilter = req.query.class_id ? String(req.query.class_id) : null;
-    const [students, invoices, enrollments, classes] = await Promise.all([
-      fetchAll(query5(usersRef, where5("role", "==", "student"))),
-      fetchAll(invoicesRef),
-      fetchAll(enrollmentsRef),
-      fetchAll(classesRef)
-    ]);
-    const classNames = new Map(classes.map((c) => [c.id, c.name]));
-    const classByStudent = new Map(enrollments.map((e) => [e.student_id, e.class_id]));
-    const totals = /* @__PURE__ */ new Map();
-    const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    for (const inv of invoices) {
-      if (inv.status === "cancelled") continue;
-      const entry = totals.get(inv.student_id) || { billed: 0, paid: 0, overdue: 0 };
-      entry.billed += netAmount(inv);
-      entry.paid += Number(inv.paid_amount || 0);
-      if (inv.due_date && inv.due_date < today) entry.overdue += remainingAmount(inv);
-      totals.set(inv.student_id, entry);
-    }
-    const rows = students.filter((s) => !classFilter || classByStudent.get(s.id) === classFilter).map((s) => {
+    const studentFilter = req.query.student_id ? String(req.query.student_id) : null;
+    const onlyDebtors = req.query.only_debtors === "1" || req.query.only_debtors === "true";
+    const search = normalizeArabic(req.query.search);
+    const offset = num(req.query.after ?? req.query.offset, "\u0627\u0644\u0625\u0632\u0627\u062D\u0629", {
+      min: 0,
+      max: 1e6,
+      optional: true,
+      default: 0
+    });
+    const pageSize = num(req.query.limit, "\u0627\u0644\u062D\u062F", { min: 1, max: 500, optional: true, default: 0 });
+    const [roster, totals] = await Promise.all([studentRoster(), invoiceTotalsByStudent()]);
+    const rows = roster.map((s) => {
       const t = totals.get(s.id) || { billed: 0, paid: 0, overdue: 0 };
       const outstanding = Math.max(0, t.billed - t.paid);
       return {
@@ -1891,8 +2044,8 @@ router4.get(
         uid: s.uid,
         phone: s.phone || "",
         guardian_phone: s.guardian_phone || "",
-        class_id: classByStudent.get(s.id) || null,
-        class_name: classNames.get(classByStudent.get(s.id) || "") || "\u063A\u064A\u0631 \u0645\u0639\u064A\u0651\u0646",
+        class_id: s.class_id,
+        class_name: s.class_name,
         total_billed: t.billed,
         total_paid: t.paid,
         outstanding,
@@ -1901,8 +2054,24 @@ router4.get(
         is_clear: outstanding === 0
       };
     });
-    rows.sort((a, b) => b.outstanding - a.outstanding);
-    res.json({ currency: CURRENCY, students: rows });
+    const matched = rows.filter((r) => {
+      if (studentFilter && r.student_id !== studentFilter) return false;
+      if (classFilter && r.class_id !== classFilter) return false;
+      if (onlyDebtors && r.is_clear) return false;
+      return matchesStudent(r, search);
+    });
+    matched.sort((a, b) => b.outstanding - a.outstanding);
+    const page = pageSize > 0 ? paginate(matched, offset, pageSize) : { data: matched, total: matched.length, nextCursor: null };
+    res.json({
+      currency: CURRENCY,
+      students: page.data,
+      total: page.total,
+      nextCursor: page.nextCursor,
+      totals: {
+        outstanding: matched.reduce((sum, r) => sum + r.outstanding, 0),
+        debtors: matched.filter((r) => !r.is_clear).length
+      }
+    });
   })
 );
 var payments_routes_default = router4;
@@ -1946,7 +2115,7 @@ router5.put(
   requireAdmin,
   wrap(async (req, res) => {
     const target = doc5(db, "classes", req.params.id);
-    const snap = await getDoc4(target);
+    const snap = await getDoc5(target);
     if (!snap.exists()) throw notFound("\u0627\u0644\u0635\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const patch = {};
     if (req.body?.name !== void 0) patch.name = str(req.body.name, "\u0627\u0633\u0645 \u0627\u0644\u0635\u0641", { min: 2, max: 120 });
@@ -1977,11 +2146,11 @@ router5.delete(
   requireAdmin,
   wrap(async (req, res) => {
     const classId = req.params.id;
-    const snap = await getDoc4(doc5(db, "classes", classId));
+    const snap = await getDoc5(doc5(db, "classes", classId));
     if (!snap.exists()) throw notFound("\u0627\u0644\u0635\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const [enrollments, schedules] = await Promise.all([
-      getDocs6(query6(enrollmentsRef, where6("class_id", "==", classId))),
-      getDocs6(query6(schedulesRef, where6("class_id", "==", classId)))
+      getDocs6(query7(enrollmentsRef, where7("class_id", "==", classId))),
+      getDocs6(query7(schedulesRef, where7("class_id", "==", classId)))
     ]);
     const refs = [...enrollments.docs, ...schedules.docs].map((d) => d.ref);
     for (const group of chunk(refs, BATCH_LIMIT3)) {
@@ -2006,16 +2175,16 @@ router5.get(
   wrap(async (req, res) => {
     const classId = req.params.classId;
     const enrollments = await fetchAll(
-      query6(enrollmentsRef, where6("class_id", "==", classId))
+      query7(enrollmentsRef, where7("class_id", "==", classId))
     );
     const studentIds = [...new Set(enrollments.map((e) => e.student_id))];
     if (studentIds.length === 0) return res.json([]);
     const [students, absences, invoices] = await Promise.all([
       getDocsByIds(usersRef, studentIds),
       fetchAll(
-        query6(attendanceRef, where6("class_id", "==", classId), where6("status", "==", "absent"))
+        query7(attendanceRef, where7("class_id", "==", classId), where7("status", "==", "absent"))
       ),
-      fetchAll(query6(invoicesRef, where6("class_id", "==", classId)))
+      fetchAll(query7(invoicesRef, where7("class_id", "==", classId)))
     ]);
     const absenceCount = /* @__PURE__ */ new Map();
     for (const record of absences) {
@@ -2049,8 +2218,8 @@ router5.get(
       throw badRequest("\u0644\u0627 \u064A\u0645\u0643\u0646\u0643 \u0639\u0631\u0636 \u0635\u0641\u0648\u0641 \u0645\u0639\u0644\u0645 \u0622\u062E\u0631");
     }
     const [byArray, bySingle] = await Promise.all([
-      fetchAll(query6(classesRef, where6("teacher_ids", "array-contains", teacherId))),
-      fetchAll(query6(classesRef, where6("teacher_id", "==", teacherId)))
+      fetchAll(query7(classesRef, where7("teacher_ids", "array-contains", teacherId))),
+      fetchAll(query7(classesRef, where7("teacher_id", "==", teacherId)))
     ]);
     const merged = /* @__PURE__ */ new Map();
     [...byArray, ...bySingle].forEach((c) => merged.set(c.id, c));
@@ -2066,7 +2235,7 @@ router5.get(
       throw badRequest("\u0644\u0627 \u064A\u0645\u0643\u0646\u0643 \u0639\u0631\u0636 \u0635\u0641\u0648\u0641 \u0637\u0627\u0644\u0628 \u0622\u062E\u0631");
     }
     const enrollments = await fetchAll(
-      query6(enrollmentsRef, where6("student_id", "==", studentId))
+      query7(enrollmentsRef, where7("student_id", "==", studentId))
     );
     const classIds = [...new Set(enrollments.map((e) => e.class_id))];
     if (classIds.length === 0) return res.json([]);
@@ -2081,16 +2250,17 @@ router5.post(
     const studentId = str(req.body?.student_id, "\u0627\u0644\u0637\u0627\u0644\u0628", { max: 64 });
     const classId = str(req.body?.class_id, "\u0627\u0644\u0635\u0641", { max: 64 });
     const [studentSnap, classSnap] = await Promise.all([
-      getDoc4(doc5(db, "users", studentId)),
-      getDoc4(doc5(db, "classes", classId))
+      getDoc5(doc5(db, "users", studentId)),
+      getDoc5(doc5(db, "classes", classId))
     ]);
     if (!studentSnap.exists()) throw notFound("\u0627\u0644\u0637\u0627\u0644\u0628 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     if (!classSnap.exists()) throw notFound("\u0627\u0644\u0635\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
-    const existing = await getDocs6(query6(enrollmentsRef, where6("student_id", "==", studentId)));
+    const existing = await getDocs6(query7(enrollmentsRef, where7("student_id", "==", studentId)));
     const batch = writeBatch3(db);
     existing.forEach((d) => batch.delete(d.ref));
     batch.set(doc5(enrollmentsRef), { student_id: studentId, class_id: classId, createdAt: serverTimestamp6() });
     await batch.commit();
+    invalidate("students");
     audit(req, {
       action: "enroll",
       entity: "enrollment",
@@ -2104,7 +2274,7 @@ var classes_routes_default = router5;
 
 // backend/routes/attendance.routes.ts
 import { Router as Router6 } from "express";
-import { doc as doc6, getDoc as getDoc5, getDocs as getDocs7, query as query7, serverTimestamp as serverTimestamp7, where as where7, writeBatch as writeBatch4 } from "firebase/firestore";
+import { doc as doc6, getDoc as getDoc6, getDocs as getDocs7, query as query8, serverTimestamp as serverTimestamp7, where as where8, writeBatch as writeBatch4 } from "firebase/firestore";
 var router6 = Router6();
 var BATCH_LIMIT4 = 450;
 var STATUSES2 = ["present", "absent", "late", "excused"];
@@ -2127,7 +2297,7 @@ router6.post(
     if (date > (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)) {
       throw badRequest("\u0644\u0627 \u064A\u0645\u0643\u0646 \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062D\u0636\u0648\u0631 \u0644\u062A\u0627\u0631\u064A\u062E \u0645\u0633\u062A\u0642\u0628\u0644\u064A");
     }
-    const classSnap = await getDoc5(doc6(db, "classes", classId));
+    const classSnap = await getDoc6(doc6(db, "classes", classId));
     if (!classSnap.exists()) throw notFound("\u0627\u0644\u0635\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const className = classSnap.data().name;
     const entries = rows.map((row) => ({
@@ -2136,7 +2306,7 @@ router6.post(
       note: str(row?.note, "\u0645\u0644\u0627\u062D\u0638\u0629", { max: 200, optional: true })
     }));
     const existing = await getDocs7(
-      query7(attendanceRef, where7("class_id", "==", classId), where7("date", "==", date))
+      query8(attendanceRef, where8("class_id", "==", classId), where8("date", "==", date))
     );
     const staleRefs = existing.docs.map((d) => d.ref);
     for (const group of chunk(staleRefs, BATCH_LIMIT4)) {
@@ -2188,7 +2358,7 @@ router6.get(
   wrap(async (req, res) => {
     const date = isoDate(req.query.date, "\u0627\u0644\u062A\u0627\u0631\u064A\u062E");
     const rows = await fetchAll(
-      query7(attendanceRef, where7("class_id", "==", req.params.classId), where7("date", "==", date))
+      query8(attendanceRef, where8("class_id", "==", req.params.classId), where8("date", "==", date))
     );
     res.json(rows);
   })
@@ -2199,7 +2369,7 @@ router6.get(
   requireSelfOrStaff("studentId"),
   wrap(async (req, res) => {
     const rows = await fetchAll(
-      query7(attendanceRef, where7("student_id", "==", req.params.studentId))
+      query8(attendanceRef, where8("student_id", "==", req.params.studentId))
     );
     rows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
     res.json(rows);
@@ -2212,7 +2382,7 @@ router6.get(
   wrap(async (req, res) => {
     const date = req.query.date ? isoDate(req.query.date, "\u0627\u0644\u062A\u0627\u0631\u064A\u062E") : (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const records = await fetchAll(
-      query7(attendanceRef, where7("date", "==", date), where7("status", "==", "absent"))
+      query8(attendanceRef, where8("date", "==", date), where8("status", "==", "absent"))
     );
     if (records.length === 0) return res.json([]);
     const [students, classes] = await Promise.all([
@@ -2245,20 +2415,22 @@ import {
   addDoc as addDoc6,
   deleteDoc as deleteDoc3,
   doc as doc7,
-  getDoc as getDoc6,
-  query as query8,
+  getDoc as getDoc7,
+  orderBy as orderBy5,
+  query as query9,
   serverTimestamp as serverTimestamp8,
   updateDoc as updateDoc6,
-  where as where8
+  where as where9
 } from "firebase/firestore";
 var router7 = Router7();
 var CATEGORIES2 = ["\u064A\u0648\u0645\u064A", "\u0634\u0647\u0631\u064A", "\u0648\u0627\u062C\u0628", "\u0645\u0634\u0627\u0631\u0643\u0629", "\u0646\u0635\u0641 \u0627\u0644\u0641\u0635\u0644", "\u0646\u0647\u0627\u0626\u064A", "\u0627\u0645\u062A\u062D\u0627\u0646"];
 var SEMESTERS = ["\u0627\u0644\u0641\u0635\u0644 \u0627\u0644\u0623\u0648\u0644", "\u0627\u0644\u0641\u0635\u0644 \u0627\u0644\u062B\u0627\u0646\u064A", "\u0627\u0644\u0641\u0635\u0644 \u0627\u0644\u062B\u0627\u0644\u062B"];
+var DEFAULT_PAGE_SIZE4 = 25;
 async function assertMaySetGrade(req, subject) {
   const role = req.user.role;
   if (role === "admin") return;
   if (role !== "teacher") throw forbidden("\u0631\u0635\u062F \u0627\u0644\u062F\u0631\u062C\u0627\u062A \u0645\u0642\u062A\u0635\u0631 \u0639\u0644\u0649 \u0627\u0644\u0645\u062F\u064A\u0631 \u0648\u0627\u0644\u0645\u0639\u0644\u0645\u064A\u0646");
-  const teacherSnap = await getDoc6(doc7(db, "users", req.user.id));
+  const teacherSnap = await getDoc7(doc7(db, "users", req.user.id));
   const subjects = teacherSnap.exists() ? teacherSnap.data().subjects || [] : [];
   if (!subjects.includes(subject)) {
     throw forbidden(`\u063A\u064A\u0631 \u0645\u0635\u0631\u062D \u0644\u0643 \u0628\u0625\u062F\u0627\u0631\u0629 \u062F\u0631\u062C\u0627\u062A \u0645\u0627\u062F\u0629 "${subject}"`);
@@ -2268,11 +2440,11 @@ router7.get(
   "/class/:classId/grades",
   requireAuth,
   wrap(async (req, res) => {
-    const rows = await fetchAll(
-      query8(gradesRef, where8("class_id", "==", req.params.classId))
-    );
-    rows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-    res.json(rows);
+    const pageSize = num(req.query.limit, "\u0627\u0644\u062D\u062F", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE4 });
+    const cursor = req.query.after ? String(req.query.after) : null;
+    const q = query9(gradesRef, where9("class_id", "==", req.params.classId), orderBy5("createdAt", "desc"));
+    const { data, nextCursor } = await fetchPage(q, pageSize, cursor, gradesRef);
+    res.json({ data, nextCursor });
   })
 );
 router7.get(
@@ -2281,7 +2453,7 @@ router7.get(
   requireSelfOrStaff("studentId"),
   wrap(async (req, res) => {
     const rows = await fetchAll(
-      query8(gradesRef, where8("student_id", "==", req.params.studentId))
+      query9(gradesRef, where9("student_id", "==", req.params.studentId))
     );
     rows.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
     res.json(rows);
@@ -2298,7 +2470,7 @@ router7.post(
     const total = num(b.total, "\u0627\u0644\u062F\u0631\u062C\u0629 \u0627\u0644\u0643\u0644\u064A\u0629", { min: 1, max: 1e4 });
     const score = num(b.score, "\u0627\u0644\u062F\u0631\u062C\u0629", { min: 0, max: total });
     const studentId = str(b.student_id, "\u0627\u0644\u0637\u0627\u0644\u0628", { max: 64 });
-    const studentSnap = await getDoc6(doc7(db, "users", studentId));
+    const studentSnap = await getDoc7(doc7(db, "users", studentId));
     if (!studentSnap.exists()) throw notFound("\u0627\u0644\u0637\u0627\u0644\u0628 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const created = await addDoc6(gradesRef, {
       student_id: studentId,
@@ -2338,7 +2510,7 @@ router7.put(
   requireRole("teacher", "admin"),
   wrap(async (req, res) => {
     const target = doc7(db, "grades", req.params.id);
-    const snap = await getDoc6(target);
+    const snap = await getDoc7(target);
     if (!snap.exists()) throw notFound("\u0627\u0644\u062F\u0631\u062C\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629");
     const current = snap.data();
     await assertMaySetGrade(req, current.subject);
@@ -2373,7 +2545,7 @@ router7.delete(
   requireRole("teacher", "admin"),
   wrap(async (req, res) => {
     const target = doc7(db, "grades", req.params.id);
-    const snap = await getDoc6(target);
+    const snap = await getDoc7(target);
     if (!snap.exists()) throw notFound("\u0627\u0644\u062F\u0631\u062C\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629");
     const current = snap.data();
     await assertMaySetGrade(req, current.subject);
@@ -2393,13 +2565,13 @@ var grades_routes_default = router7;
 import { Router as Router8 } from "express";
 import {
   doc as doc8,
-  getDoc as getDoc7,
+  getDoc as getDoc8,
   getDocs as getDocs9,
-  limit as fsLimit3,
-  orderBy as orderBy2,
-  query as query9,
+  limit as fsLimit4,
+  orderBy as orderBy6,
+  query as query10,
   updateDoc as updateDoc7,
-  where as where9,
+  where as where10,
   writeBatch as writeBatch5
 } from "firebase/firestore";
 var router8 = Router8();
@@ -2411,15 +2583,15 @@ router8.get(
     if (req.user.id !== req.params.userId) throw forbidden("\u0644\u0627 \u064A\u0645\u0643\u0646\u0643 \u0639\u0631\u0636 \u0625\u0634\u0639\u0627\u0631\u0627\u062A \u0645\u0633\u062A\u062E\u062F\u0645 \u0622\u062E\u0631");
     const max = num(req.query.limit, "\u0627\u0644\u062D\u062F", { min: 1, max: 100, optional: true, default: 20 });
     const rows = await fetchIndexed(
-      query9(
+      query10(
         notificationsRef,
-        where9("user_id", "==", req.params.userId),
-        orderBy2("createdAt", "desc"),
-        fsLimit3(max)
+        where10("user_id", "==", req.params.userId),
+        orderBy6("createdAt", "desc"),
+        fsLimit4(max)
       ),
       async () => {
         const all = await fetchAll(
-          query9(notificationsRef, where9("user_id", "==", req.params.userId))
+          query10(notificationsRef, where10("user_id", "==", req.params.userId))
         );
         all.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
         return all.slice(0, max);
@@ -2434,7 +2606,7 @@ router8.post(
   requireAuth,
   wrap(async (req, res) => {
     const target = doc8(db, "notifications", req.params.id);
-    const snap = await getDoc7(target);
+    const snap = await getDoc8(target);
     if (!snap.exists()) throw notFound("\u0627\u0644\u0625\u0634\u0639\u0627\u0631 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     if (snap.data().user_id !== req.user.id) throw forbidden("\u0644\u0627 \u064A\u0645\u0643\u0646\u0643 \u062A\u0639\u062F\u064A\u0644 \u0625\u0634\u0639\u0627\u0631 \u0645\u0633\u062A\u062E\u062F\u0645 \u0622\u062E\u0631");
     await updateDoc7(target, { isRead: true });
@@ -2446,7 +2618,7 @@ router8.post(
   requireAuth,
   wrap(async (req, res) => {
     const unread = await getDocs9(
-      query9(notificationsRef, where9("user_id", "==", req.user.id), where9("isRead", "==", false))
+      query10(notificationsRef, where10("user_id", "==", req.user.id), where10("isRead", "==", false))
     );
     const refs = unread.docs.map((d) => d.ref);
     for (const group of chunk(refs, BATCH_LIMIT5)) {
@@ -2461,7 +2633,7 @@ var notifications_routes_default = router8;
 
 // backend/routes/catalog.routes.ts
 import { Router as Router9 } from "express";
-import { addDoc as addDoc7, deleteDoc as deleteDoc4, doc as doc9, getDoc as getDoc8, query as query10, serverTimestamp as serverTimestamp9, where as where10 } from "firebase/firestore";
+import { addDoc as addDoc7, deleteDoc as deleteDoc4, doc as doc9, getDoc as getDoc9, query as query11, serverTimestamp as serverTimestamp9, where as where11 } from "firebase/firestore";
 var router9 = Router9();
 var SUBJECT_COLORS = [
   "bg-blue-500",
@@ -2503,7 +2675,7 @@ router9.delete(
   "/admin/subjects/:id",
   requireStaff,
   wrap(async (req, res) => {
-    const snap = await getDoc8(doc9(db, "subjects", req.params.id));
+    const snap = await getDoc9(doc9(db, "subjects", req.params.id));
     if (!snap.exists()) throw notFound("\u0627\u0644\u0645\u0627\u062F\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629");
     await deleteDoc4(doc9(db, "subjects", req.params.id));
     invalidate("subjects");
@@ -2521,7 +2693,7 @@ router9.get(
   requireAuth,
   wrap(async (req, res) => {
     const rows = await fetchAll(
-      query10(schedulesRef, where10("class_id", "==", req.params.classId))
+      query11(schedulesRef, where11("class_id", "==", req.params.classId))
     );
     const order = new Map(DAYS.map((d, i) => [d, i]));
     rows.sort((a, b) => {
@@ -2539,10 +2711,10 @@ router9.post(
     const day = oneOf(req.body?.day, "\u0627\u0644\u064A\u0648\u0645", DAYS);
     const time = str(req.body?.time, "\u0627\u0644\u0648\u0642\u062A", { max: 40 });
     const subject = str(req.body?.subject, "\u0627\u0644\u0645\u0627\u062F\u0629", { max: 80 });
-    const classSnap = await getDoc8(doc9(db, "classes", classId));
+    const classSnap = await getDoc9(doc9(db, "classes", classId));
     if (!classSnap.exists()) throw notFound("\u0627\u0644\u0635\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const sameSlot = await fetchAll(
-      query10(schedulesRef, where10("class_id", "==", classId), where10("day", "==", day), where10("time", "==", time))
+      query11(schedulesRef, where11("class_id", "==", classId), where11("day", "==", day), where11("time", "==", time))
     );
     if (sameSlot.length > 0) throw badRequest("\u064A\u0648\u062C\u062F \u062F\u0631\u0633 \u0645\u0633\u062C\u0644 \u0628\u0627\u0644\u0641\u0639\u0644 \u0641\u064A \u0647\u0630\u0627 \u0627\u0644\u064A\u0648\u0645 \u0648\u0627\u0644\u0648\u0642\u062A \u0644\u0647\u0630\u0627 \u0627\u0644\u0635\u0641");
     const created = await addDoc7(schedulesRef, {
@@ -2568,7 +2740,7 @@ router9.delete(
   "/admin/schedules/:id",
   requireStaff,
   wrap(async (req, res) => {
-    const snap = await getDoc8(doc9(db, "schedules", req.params.id));
+    const snap = await getDoc9(doc9(db, "schedules", req.params.id));
     if (!snap.exists()) throw notFound("\u0627\u0644\u062D\u0635\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629");
     await deleteDoc4(doc9(db, "schedules", req.params.id));
     audit(req, {
@@ -2584,7 +2756,7 @@ var catalog_routes_default = router9;
 
 // backend/routes/behavior.routes.ts
 import { Router as Router10 } from "express";
-import { addDoc as addDoc8, deleteDoc as deleteDoc5, doc as doc10, getDoc as getDoc9, query as query11, serverTimestamp as serverTimestamp10, where as where11 } from "firebase/firestore";
+import { addDoc as addDoc8, deleteDoc as deleteDoc5, doc as doc10, getDoc as getDoc10, orderBy as orderBy7, query as query12, serverTimestamp as serverTimestamp10, where as where12 } from "firebase/firestore";
 var router10 = Router10();
 var TYPES = ["positive", "negative"];
 var CATEGORIES3 = [
@@ -2611,7 +2783,7 @@ router10.post(
     const points = num(req.body?.points, "\u0627\u0644\u0646\u0642\u0627\u0637", { min: 0, max: 100, optional: true, default: 5 });
     const date = isoDate(req.body?.date, "\u0627\u0644\u062A\u0627\u0631\u064A\u062E", { optional: true }) || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     const notifyStudent = boolean(req.body?.notify_student, true);
-    const studentSnap = await getDoc9(doc10(db, "users", studentId));
+    const studentSnap = await getDoc10(doc10(db, "users", studentId));
     if (!studentSnap.exists()) throw notFound("\u0627\u0644\u0637\u0627\u0644\u0628 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const student = studentSnap.data();
     const created = await addDoc8(behaviorRef, {
@@ -2655,7 +2827,7 @@ router10.get(
   requireSelfOrStaff("studentId"),
   wrap(async (req, res) => {
     const rows = await fetchAll(
-      query11(behaviorRef, where11("student_id", "==", req.params.studentId))
+      query12(behaviorRef, where12("student_id", "==", req.params.studentId))
     );
     rows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
     const score = rows.reduce((sum, r) => sum + Number(r.points || 0), 0);
@@ -2670,23 +2842,24 @@ router10.get(
     });
   })
 );
+var DEFAULT_PAGE_SIZE5 = 25;
 router10.get(
   "/class/:classId/behavior",
   requireAuth,
   requireRole("teacher", "admin", "assistant_admin"),
   wrap(async (req, res) => {
-    const rows = await fetchAll(
-      query11(behaviorRef, where11("class_id", "==", req.params.classId))
-    );
-    rows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
-    res.json(rows);
+    const pageSize = num(req.query.limit, "\u0627\u0644\u062D\u062F", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE5 });
+    const cursor = req.query.after ? String(req.query.after) : null;
+    const q = query12(behaviorRef, where12("class_id", "==", req.params.classId), orderBy7("date", "desc"));
+    const { data, nextCursor } = await fetchPage(q, pageSize, cursor, behaviorRef);
+    res.json({ data, nextCursor });
   })
 );
 router10.delete(
   "/behavior/:id",
   requireAdmin,
   wrap(async (req, res) => {
-    const snap = await getDoc9(doc10(db, "behavior_notes", req.params.id));
+    const snap = await getDoc10(doc10(db, "behavior_notes", req.params.id));
     if (!snap.exists()) throw notFound("\u0627\u0644\u0645\u0644\u0627\u062D\u0638\u0629 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F\u0629");
     await deleteDoc5(doc10(db, "behavior_notes", req.params.id));
     audit(req, {
@@ -2702,7 +2875,7 @@ var behavior_routes_default = router10;
 
 // backend/routes/reports.routes.ts
 import { Router as Router11 } from "express";
-import { doc as doc11, getDoc as getDoc10, query as query12, where as where12 } from "firebase/firestore";
+import { doc as doc11, getDoc as getDoc11, orderBy as orderBy8, query as query13, where as where13 } from "firebase/firestore";
 var router11 = Router11();
 function attendanceStats(records) {
   const total = records.length;
@@ -2752,19 +2925,19 @@ router11.get(
   requireSelfOrStaff("studentId"),
   wrap(async (req, res) => {
     const studentId = req.params.studentId;
-    const studentSnap = await getDoc10(doc11(db, "users", studentId));
+    const studentSnap = await getDoc11(doc11(db, "users", studentId));
     if (!studentSnap.exists()) throw notFound("\u0627\u0644\u0637\u0627\u0644\u0628 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const [grades, attendance, invoices, payments, behavior, enrollments] = await Promise.all([
-      fetchAll(query12(gradesRef, where12("student_id", "==", studentId))),
-      fetchAll(query12(attendanceRef, where12("student_id", "==", studentId))),
-      fetchAll(query12(invoicesRef, where12("student_id", "==", studentId))),
-      fetchAll(query12(paymentsRef, where12("student_id", "==", studentId))),
-      fetchAll(query12(behaviorRef, where12("student_id", "==", studentId))),
-      fetchAll(query12(enrollmentsRef, where12("student_id", "==", studentId)))
+      fetchAll(query13(gradesRef, where13("student_id", "==", studentId))),
+      fetchAll(query13(attendanceRef, where13("student_id", "==", studentId))),
+      fetchAll(query13(invoicesRef, where13("student_id", "==", studentId))),
+      fetchAll(query13(paymentsRef, where13("student_id", "==", studentId))),
+      fetchAll(query13(behaviorRef, where13("student_id", "==", studentId))),
+      fetchAll(query13(enrollmentsRef, where13("student_id", "==", studentId)))
     ]);
     let className = null;
     if (enrollments[0]?.class_id) {
-      const classSnap = await getDoc10(doc11(db, "classes", enrollments[0].class_id));
+      const classSnap = await getDoc11(doc11(db, "classes", enrollments[0].class_id));
       className = classSnap.exists() ? classSnap.data().name : null;
     }
     const activeInvoices = invoices.filter((i) => i.status !== "cancelled");
@@ -2802,17 +2975,17 @@ router11.get(
   requireRole("teacher", "admin", "assistant_admin"),
   wrap(async (req, res) => {
     const classId = req.params.classId;
-    const classSnap = await getDoc10(doc11(db, "classes", classId));
+    const classSnap = await getDoc11(doc11(db, "classes", classId));
     if (!classSnap.exists()) throw notFound("\u0627\u0644\u0635\u0641 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F");
     const enrollments = await fetchAll(
-      query12(enrollmentsRef, where12("class_id", "==", classId))
+      query13(enrollmentsRef, where13("class_id", "==", classId))
     );
     const studentIds = [...new Set(enrollments.map((e) => e.student_id))];
     const [students, grades, attendance, invoices] = await Promise.all([
       getDocsByIds(usersRef, studentIds),
-      fetchAll(query12(gradesRef, where12("class_id", "==", classId))),
-      fetchAll(query12(attendanceRef, where12("class_id", "==", classId))),
-      fetchAll(query12(invoicesRef, where12("class_id", "==", classId)))
+      fetchAll(query13(gradesRef, where13("class_id", "==", classId))),
+      fetchAll(query13(attendanceRef, where13("class_id", "==", classId))),
+      fetchAll(query13(invoicesRef, where13("class_id", "==", classId)))
     ]);
     const gradesByStudent = /* @__PURE__ */ new Map();
     grades.forEach((g) => {
@@ -2864,32 +3037,35 @@ router11.get(
   requireAuth,
   requireRole("admin", "assistant_admin"),
   wrap(async (_req, res) => {
-    const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    const [users, classes, invoices, todayAttendance, registrations] = await Promise.all([
-      fetchAll(usersRef),
-      fetchAll(classesRef),
-      fetchAll(invoicesRef),
-      fetchAll(query12(attendanceRef, where12("date", "==", today))),
-      fetchAll(query12(registrationsRef, where12("status", "==", "pending")))
-    ]);
-    const activeInvoices = invoices.filter((i) => i.status !== "cancelled");
-    const billed = activeInvoices.reduce((sum, i) => sum + netAmount(i), 0);
-    const paid = activeInvoices.reduce((sum, i) => sum + Number(i.paid_amount || 0), 0);
-    res.json({
-      currency: CURRENCY,
-      students: users.filter((u) => u.role === "student").length,
-      teachers: users.filter((u) => u.role === "teacher").length,
-      assistants: users.filter((u) => u.role === "assistant_admin").length,
-      classes: classes.length,
-      pending_registrations: registrations.length,
-      attendance_today: attendanceStats(todayAttendance),
-      finance: {
-        total_billed: billed,
-        total_collected: paid,
-        outstanding: Math.max(0, billed - paid),
-        collection_rate: billed > 0 ? Math.round(paid / billed * 100) : 100
-      }
+    const payload = await cached("overview:school", 3e4, async () => {
+      const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      const [users, classes, invoices, todayAttendance, registrations] = await Promise.all([
+        fetchAll(usersRef),
+        fetchAll(classesRef),
+        fetchAll(invoicesRef),
+        fetchAll(query13(attendanceRef, where13("date", "==", today))),
+        fetchAll(query13(registrationsRef, where13("status", "==", "pending")))
+      ]);
+      const activeInvoices = invoices.filter((i) => i.status !== "cancelled");
+      const billed = activeInvoices.reduce((sum, i) => sum + netAmount(i), 0);
+      const paid = activeInvoices.reduce((sum, i) => sum + Number(i.paid_amount || 0), 0);
+      return {
+        currency: CURRENCY,
+        students: users.filter((u) => u.role === "student").length,
+        teachers: users.filter((u) => u.role === "teacher").length,
+        assistants: users.filter((u) => u.role === "assistant_admin").length,
+        classes: classes.length,
+        pending_registrations: registrations.length,
+        attendance_today: attendanceStats(todayAttendance),
+        finance: {
+          total_billed: billed,
+          total_collected: paid,
+          outstanding: Math.max(0, billed - paid),
+          collection_rate: billed > 0 ? Math.round(paid / billed * 100) : 100
+        }
+      };
     });
+    res.json(payload);
   })
 );
 router11.get(
@@ -2900,10 +3076,22 @@ router11.get(
     const from = isoDate(req.query.from, "\u0645\u0646 \u062A\u0627\u0631\u064A\u062E");
     const to = isoDate(req.query.to, "\u0625\u0644\u0649 \u062A\u0627\u0631\u064A\u062E");
     const classId = req.query.class_id ? String(req.query.class_id) : null;
-    const records = await fetchAll(
-      classId ? query12(attendanceRef, where12("class_id", "==", classId)) : attendanceRef
+    const inRange = classId ? await fetchIndexed(
+      query13(
+        attendanceRef,
+        where13("class_id", "==", classId),
+        where13("date", ">=", from),
+        where13("date", "<=", to),
+        orderBy8("date")
+      ),
+      async () => {
+        const all = await fetchAll(query13(attendanceRef, where13("class_id", "==", classId)));
+        return all.filter((r) => r.date >= from && r.date <= to);
+      },
+      "attendance by class over a date range"
+    ) : await fetchAll(
+      query13(attendanceRef, where13("date", ">=", from), where13("date", "<=", to), orderBy8("date"))
     );
-    const inRange = records.filter((r) => r.date >= from && r.date <= to);
     const byStudent = /* @__PURE__ */ new Map();
     inRange.forEach((r) => {
       const list = byStudent.get(r.student_id) || [];
@@ -2975,7 +3163,7 @@ app.post(
   rateLimit({ windowMs: 60 * 60 * 1e3, max: 5, keyPrefix: "setup" }),
   async (req, res, next) => {
     try {
-      const existingAdmin = await getDocs10(query13(usersRef, where13("role", "==", "admin"), fsLimit4(1)));
+      const existingAdmin = await getDocs10(query14(usersRef, where14("role", "==", "admin"), fsLimit5(1)));
       if (!existingAdmin.empty) {
         throw new HttpError(409, "\u062A\u0645 \u062A\u0647\u064A\u0626\u0629 \u0627\u0644\u0646\u0638\u0627\u0645 \u0645\u0633\u0628\u0642\u0627\u064B. \u0644\u0627 \u064A\u0645\u0643\u0646 \u0625\u0646\u0634\u0627\u0621 \u0645\u062F\u064A\u0631 \u062C\u062F\u064A\u062F \u0645\u0646 \u0647\u0646\u0627.");
       }
@@ -2997,7 +3185,7 @@ app.post(
         status: "active",
         createdAt: serverTimestamp11()
       });
-      const subjects = await getDocs10(query13(subjectsRef, fsLimit4(1)));
+      const subjects = await getDocs10(query14(subjectsRef, fsLimit5(1)));
       if (subjects.empty) {
         const defaults = [
           { name: "\u0627\u0644\u0631\u064A\u0627\u0636\u064A\u0627\u062A", color: "bg-blue-500" },

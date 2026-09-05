@@ -93,6 +93,15 @@
       ]
     },
     {
+      "//": "Attendance for one class over a date range (the printable absence sheet).",
+      "collectionGroup": "attendance",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "class_id", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
+    },
+    {
       "//": "Paginated behavior notes by class, newest date first.",
       "collectionGroup": "behavior_notes",
       "queryScope": "COLLECTION",

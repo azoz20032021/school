@@ -26,6 +26,8 @@ import {
   usersRef,
 } from "../lib/db.js";
 import { requireAdmin, requireAuth, requireSelfOrStaff, requireStaff } from "../lib/auth.js";
+import { cached, invalidate } from "../lib/cache.js";
+import { matchesStudent, normalizeArabic, paginate, studentRoster } from "../lib/roster.js";
 import { audit } from "../lib/audit.js";
 import { badRequest, notFound, wrap } from "../lib/http.js";
 import * as v from "../lib/validate.js";
@@ -40,6 +42,9 @@ const INVOICE_STATUSES = ["unpaid", "partial", "paid", "cancelled"] as const;
 
 const BATCH_LIMIT = 450;
 const DEFAULT_PAGE_SIZE = 25;
+
+/** How long the cached invoice scan may be reused; every write drops it. */
+const FINANCE_TTL_MS = 30_000;
 
 interface InvoiceShape {
   amount?: number;
@@ -192,6 +197,8 @@ router.post(
       await batch.commit();
     }
 
+    // The cached invoice scan no longer reflects the ledger.
+    invalidate("finance");
     audit(req, {
       action: "create",
       entity: "invoice",
@@ -232,6 +239,8 @@ router.put(
 
     await updateDoc(invoiceDoc, patch);
 
+    // The cached invoice scan no longer reflects the ledger.
+    invalidate("finance");
     audit(req, {
       action: "update",
       entity: "invoice",
@@ -263,6 +272,8 @@ router.delete(
       cancelled_at: serverTimestamp(),
     });
 
+    // The cached invoice scan no longer reflects the ledger.
+    invalidate("finance");
     audit(req, {
       action: "delete",
       entity: "invoice",
@@ -342,6 +353,8 @@ router.post(
       createdAt: serverTimestamp(),
     });
 
+    // The cached invoice scan no longer reflects the ledger.
+    invalidate("finance");
     audit(req, {
       action: "payment",
       entity: "invoice",
@@ -393,6 +406,8 @@ router.delete(
       return `إرجاع دفعة ${payment.amount} ${CURRENCY} للطالب ${payment.student_name}`;
     });
 
+    // The cached invoice scan no longer reflects the ledger.
+    invalidate("finance");
     audit(req, { action: "delete", entity: "payment", entityId: req.params.id, summary });
     res.json({ success: true });
   })
@@ -401,6 +416,29 @@ router.delete(
 /* ------------------------------------------------------------------ *
  * Student-facing + summaries
  * ------------------------------------------------------------------ */
+
+/**
+ * Per-student billed / paid / overdue totals, computed from one cached read of
+ * the invoice collection and shared by every finance screen.
+ */
+async function invoiceTotalsByStudent(): Promise<Map<string, { billed: number; paid: number; overdue: number }>> {
+  const invoices = await cached("finance:invoices", FINANCE_TTL_MS, () =>
+    fetchAll<Record<string, any>>(invoicesRef)
+  );
+
+  const today = new Date().toISOString().slice(0, 10);
+  const totals = new Map<string, { billed: number; paid: number; overdue: number }>();
+
+  for (const inv of invoices) {
+    if (inv.status === "cancelled") continue;
+    const entry = totals.get(inv.student_id) || { billed: 0, paid: 0, overdue: 0 };
+    entry.billed += netAmount(inv);
+    entry.paid += Number(inv.paid_amount || 0);
+    if (inv.due_date && inv.due_date < today) entry.overdue += remainingAmount(inv);
+    totals.set(inv.student_id, entry);
+  }
+  return totals;
+}
 
 router.get(
   "/student/:studentId/finance",
@@ -440,12 +478,21 @@ router.get(
   })
 );
 
-/** Whole-school finance overview for the admin dashboard. */
+/**
+ * Whole-school finance overview for the admin dashboard.
+ *
+ * Totalling every invoice in the school is a full collection read, and the
+ * finance screen asks for it on every visit. The numbers only move when
+ * somebody issues a bill or records a payment, and both of those drop this
+ * cache, so a stale answer is never served for longer than the TTL.
+ */
 router.get(
   "/admin/finance/summary",
   requireStaff,
   wrap(async (req, res) => {
-    const invoices = await fetchAll<Record<string, any>>(invoicesRef);
+    const invoices = await cached("finance:invoices", FINANCE_TTL_MS, () =>
+      fetchAll<Record<string, any>>(invoicesRef)
+    );
     const active = invoices.filter((i) => i.status !== "cancelled");
 
     const totalBilled = active.reduce((sum, i) => sum + netAmount(i), 0);
@@ -483,58 +530,79 @@ router.get(
  * One row per student with their financial standing — this is what answers
  * "does this student owe anything?" at a glance.
  */
+/**
+ * One row per student with their financial standing — this is what answers
+ * "does this student owe anything?" at a glance.
+ *
+ * Filtering, searching and paging all happen here rather than in the browser.
+ * A school of a few hundred students would otherwise ship every row on every
+ * visit and then ask React to paint all of them, which is what made this
+ * screen crawl. `limit` is optional: the printable debt statement still asks
+ * for the whole list in one request.
+ */
 router.get(
   "/admin/finance/students",
   requireStaff,
   wrap(async (req, res) => {
     const classFilter = req.query.class_id ? String(req.query.class_id) : null;
+    const studentFilter = req.query.student_id ? String(req.query.student_id) : null;
+    const onlyDebtors = req.query.only_debtors === "1" || req.query.only_debtors === "true";
+    const search = normalizeArabic(req.query.search);
+    const offset = v.num(req.query.after ?? req.query.offset, "الإزاحة", {
+      min: 0,
+      max: 1_000_000,
+      optional: true,
+      default: 0,
+    });
+    const pageSize = v.num(req.query.limit, "الحد", { min: 1, max: 500, optional: true, default: 0 });
 
-    const [students, invoices, enrollments, classes] = await Promise.all([
-      fetchAll<Record<string, any>>(query(usersRef, where("role", "==", "student"))),
-      fetchAll<Record<string, any>>(invoicesRef),
-      fetchAll<{ student_id: string; class_id: string }>(enrollmentsRef),
-      fetchAll<{ name: string }>(classesRef),
-    ]);
+    const [roster, totals] = await Promise.all([studentRoster(), invoiceTotalsByStudent()]);
 
-    const classNames = new Map(classes.map((c) => [c.id, c.name]));
-    const classByStudent = new Map(enrollments.map((e) => [e.student_id, e.class_id]));
+    const rows = roster.map((s) => {
+      const t = totals.get(s.id) || { billed: 0, paid: 0, overdue: 0 };
+      const outstanding = Math.max(0, t.billed - t.paid);
+      return {
+        student_id: s.id,
+        name: s.name,
+        uid: s.uid,
+        phone: s.phone || "",
+        guardian_phone: s.guardian_phone || "",
+        class_id: s.class_id,
+        class_name: s.class_name,
+        total_billed: t.billed,
+        total_paid: t.paid,
+        outstanding,
+        overdue_amount: t.overdue,
+        payment_status:
+          outstanding === 0 ? (t.billed > 0 ? "مسدد" : "لا توجد رسوم") : t.overdue > 0 ? "متأخر" : "عليه مستحقات",
+        is_clear: outstanding === 0,
+      };
+    });
 
-    const totals = new Map<string, { billed: number; paid: number; overdue: number }>();
-    const today = new Date().toISOString().slice(0, 10);
+    const matched = rows.filter((r) => {
+      if (studentFilter && r.student_id !== studentFilter) return false;
+      if (classFilter && r.class_id !== classFilter) return false;
+      if (onlyDebtors && r.is_clear) return false;
+      return matchesStudent(r, search);
+    });
 
-    for (const inv of invoices) {
-      if (inv.status === "cancelled") continue;
-      const entry = totals.get(inv.student_id) || { billed: 0, paid: 0, overdue: 0 };
-      entry.billed += netAmount(inv);
-      entry.paid += Number(inv.paid_amount || 0);
-      if (inv.due_date && inv.due_date < today) entry.overdue += remainingAmount(inv);
-      totals.set(inv.student_id, entry);
-    }
+    matched.sort((a, b) => b.outstanding - a.outstanding);
 
-    const rows = students
-      .filter((s) => !classFilter || classByStudent.get(s.id) === classFilter)
-      .map((s) => {
-        const t = totals.get(s.id) || { billed: 0, paid: 0, overdue: 0 };
-        const outstanding = Math.max(0, t.billed - t.paid);
-        return {
-          student_id: s.id,
-          name: s.name,
-          uid: s.uid,
-          phone: s.phone || "",
-          guardian_phone: s.guardian_phone || "",
-          class_id: classByStudent.get(s.id) || null,
-          class_name: classNames.get(classByStudent.get(s.id) || "") || "غير معيّن",
-          total_billed: t.billed,
-          total_paid: t.paid,
-          outstanding,
-          overdue_amount: t.overdue,
-          payment_status: outstanding === 0 ? (t.billed > 0 ? "مسدد" : "لا توجد رسوم") : t.overdue > 0 ? "متأخر" : "عليه مستحقات",
-          is_clear: outstanding === 0,
-        };
-      });
+    const page =
+      pageSize > 0
+        ? paginate(matched, offset, pageSize)
+        : { data: matched, total: matched.length, nextCursor: null };
 
-    rows.sort((a, b) => b.outstanding - a.outstanding);
-    res.json({ currency: CURRENCY, students: rows });
+    res.json({
+      currency: CURRENCY,
+      students: page.data,
+      total: page.total,
+      nextCursor: page.nextCursor,
+      totals: {
+        outstanding: matched.reduce((sum, r) => sum + r.outstanding, 0),
+        debtors: matched.filter((r) => !r.is_clear).length,
+      },
+    });
   })
 );
 

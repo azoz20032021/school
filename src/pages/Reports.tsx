@@ -4,6 +4,7 @@ import { ClassData, UserData } from '../types';
 import { api, ApiError, formatMoney } from '../lib/api';
 import { isStaff } from '../context/AuthContext';
 import { Card, EmptyState, ErrorBanner, SectionTitle, Spinner, inputClass, labelClass } from '../components/ui';
+import { PickableStudent, StudentPicker } from '../components/StudentPicker';
 import { t } from '../i18n';
 
 type ReportKind = 'student' | 'class' | 'attendance' | 'finance';
@@ -14,6 +15,13 @@ const TABS: { key: ReportKind; label: string }[] = [
     { key: 'attendance', label: 'كشف غياب' },
     { key: 'finance', label: 'كشف الديون' },
 ];
+
+const STATUS_LABEL: Record<string, string> = {
+    paid: 'مسدد بالكامل',
+    partial: 'مسدد جزئياً',
+    unpaid: 'غير مسدد',
+    cancelled: 'ملغى',
+};
 
 const today = () => new Date().toISOString().slice(0, 10);
 const monthAgo = () => {
@@ -60,27 +68,20 @@ const Table: React.FC<{ headers: string[]; rows: (string | number | React.ReactN
 export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
     const [tab, setTab] = useState<ReportKind>(isStaff(user.role) ? 'class' : 'student');
     const [classes, setClasses] = useState<ClassData[]>([]);
-    const [students, setStudents] = useState<{ id: string; name: string; uid: string }[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [data, setData] = useState<any>(null);
 
     const [selectedClass, setSelectedClass] = useState('');
     const [selectedStudent, setSelectedStudent] = useState(user.role === 'student' ? user.id : '');
+    const [studentInfo, setStudentInfo] = useState<PickableStudent | null>(null);
+    const [onlyDebtors, setOnlyDebtors] = useState(false);
     const [from, setFrom] = useState(monthAgo());
     const [to, setTo] = useState(today());
 
     useEffect(() => {
         const endpoint = isStaff(user.role) ? '/api/classes' : `/api/teacher/classes/${user.id}`;
         api.get<ClassData[]>(endpoint).then(setClasses).catch(() => {});
-        if (isStaff(user.role)) {
-            api.get<{ data: any[] }>('/api/admin/students?limit=100')
-                .then((res) => {
-                    const list = Array.isArray(res) ? res : (res?.data || []);
-                    setStudents(list.map((s) => ({ id: s.id, name: s.name, uid: s.uid })));
-                })
-                .catch(() => {});
-        }
     }, [user.id, user.role]);
 
     const run = useCallback(async () => {
@@ -99,9 +100,15 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                 const params = new URLSearchParams({ from, to });
                 if (selectedClass) params.set('class_id', selectedClass);
                 result = await api.get(`/api/reports/attendance?${params}`);
+            } else if (selectedStudent) {
+                // A statement for one student: their own bills, not the school's.
+                const finance = await api.get<any>(`/api/student/${selectedStudent}/finance`);
+                result = { single: true, student: studentInfo, ...finance };
             } else {
-                const params = selectedClass ? `?class_id=${selectedClass}` : '';
-                result = await api.get(`/api/admin/finance/students${params}`);
+                const params = new URLSearchParams();
+                if (selectedClass) params.set('class_id', selectedClass);
+                if (onlyDebtors) params.set('only_debtors', '1');
+                result = await api.get(`/api/admin/finance/students?${params}`);
             }
             setData(result);
         } catch (err) {
@@ -109,7 +116,7 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
         } finally {
             setLoading(false);
         }
-    }, [tab, selectedStudent, selectedClass, from, to]);
+    }, [tab, selectedStudent, studentInfo, selectedClass, onlyDebtors, from, to]);
 
     // A student only ever has one report to look at — load it straight away.
     useEffect(() => {
@@ -140,7 +147,7 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                     {TABS.filter((tab_) => isStaff(user.role) || tab_.key !== 'finance').map((tab_) => (
                         <button
                             key={tab_.key}
-                            onClick={() => { setTab(tab_.key); setData(null); }}
+                            onClick={() => { setTab(tab_.key); setData(null); setError(''); }}
                             className={`px-4 py-2 rounded-xl text-xs font-black whitespace-nowrap transition-colors ${
                                 tab === tab_.key ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'bg-white text-slate-500 border border-slate-100'
                             }`}
@@ -156,11 +163,12 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                     <div className="grid md:grid-cols-3 gap-3">
                         {tab === 'student' && (
                             <div className="md:col-span-2">
-                                <label className={labelClass}>{t('الطالب')}</label>
-                                <select className={inputClass} value={selectedStudent} onChange={(e) => setSelectedStudent(e.target.value)}>
-                                    <option value="">{t('-- اختر الطالب --')}</option>
-                                    {students.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.uid}</option>)}
-                                </select>
+                                <StudentPicker
+                                    label={t('الطالب')}
+                                    required
+                                    value={selectedStudent}
+                                    onChange={(id, student) => { setSelectedStudent(id); setStudentInfo(student); setData(null); }}
+                                />
                             </div>
                         )}
 
@@ -171,6 +179,17 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                                     <option value="">{tab === 'class' ? t('-- اختر الصف --') : t('كل الصفوف')}</option>
                                     {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                                 </select>
+                            </div>
+                        )}
+
+                        {tab === 'finance' && (
+                            <div className="md:col-span-2">
+                                <StudentPicker
+                                    label={t('طالب محدد (اختياري)')}
+                                    hint={t('اتركه فارغاً ليشمل الكشف كل الطلاب')}
+                                    value={selectedStudent}
+                                    onChange={(id, student) => { setSelectedStudent(id); setStudentInfo(student); setData(null); }}
+                                />
                             </div>
                         )}
 
@@ -187,6 +206,18 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                             </>
                         )}
                     </div>
+
+                    {tab === 'finance' && !selectedStudent && (
+                        <label className="flex items-center gap-2 text-[11px] font-bold text-slate-600 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={onlyDebtors}
+                                onChange={(e) => { setOnlyDebtors(e.target.checked); setData(null); }}
+                                className="w-4 h-4 accent-indigo-600"
+                            />
+                            {t('اعرض من عليهم مستحقات فقط')}
+                        </label>
+                    )}
 
                     <button
                         onClick={run}
@@ -324,22 +355,105 @@ export const Reports: React.FC<{ user: UserData }> = ({ user }) => {
                 </div>
             )}
 
-            {data && tab === 'finance' && (
+            {data && tab === 'finance' && data.single && (
                 <div className="space-y-4">
-                    <PrintHeader title={t('كشف الديون')} />
+                    <PrintHeader title={t('كشف ديون طالب')} subtitle={data.student?.name} />
+
+                    <Card className="p-5 print:shadow-none print:border-slate-300">
+                        <SectionTitle title={t('بيانات الطالب')} />
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                            {[
+                                ['الاسم', data.student?.name || '—'],
+                                ['الرقم التعريفي', data.student?.uid || '—'],
+                                ['الصف', data.student?.class_name || '—'],
+                                ['هاتف ولي الأمر', data.student?.guardian_phone || '—'],
+                            ].map(([label, value]) => (
+                                <div key={label} className="bg-slate-50 rounded-xl p-3 print:bg-white print:border print:border-slate-200">
+                                    <p className="text-[10px] text-slate-400 font-bold">{label}</p>
+                                    <p className="font-black text-slate-800 mt-0.5">{value}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </Card>
+
+                    <div className="grid md:grid-cols-3 gap-4">
+                        <Card className="p-5">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase">{t('إجمالي المستحق')}</p>
+                            <p className="text-2xl font-black text-slate-800 mt-1">{formatMoney(data.summary.total_billed)}</p>
+                        </Card>
+                        <Card className="p-5">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase">{t('المسدد')}</p>
+                            <p className="text-2xl font-black text-emerald-600 mt-1">{formatMoney(data.summary.total_paid)}</p>
+                        </Card>
+                        <Card className="p-5">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase">{t('المتبقي')}</p>
+                            <p className={`text-2xl font-black mt-1 ${data.summary.is_clear ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                {formatMoney(data.summary.outstanding)}
+                            </p>
+                            {data.summary.overdue_count > 0 && (
+                                <p className="text-[10px] text-rose-400 font-bold mt-1">
+                                    {data.summary.overdue_count} سند متأخر بقيمة {formatMoney(data.summary.overdue_amount)}
+                                </p>
+                            )}
+                        </Card>
+                    </div>
+
+                    <Card className="p-5">
+                        <SectionTitle title={t('السندات')} subtitle={`${data.invoices.length} سند`} />
+                        {data.invoices.length === 0 ? (
+                            <EmptyState message={t('لا توجد رسوم مسجلة على هذا الطالب')} />
+                        ) : (
+                            <Table
+                                headers={['السند', 'النوع', 'الاستحقاق', 'المبلغ', 'المسدد', 'المتبقي', 'الحالة']}
+                                rows={data.invoices.map((i: any) => [
+                                    i.title, i.category || '—', i.due_date || '—',
+                                    formatMoney(i.net_amount), formatMoney(i.paid_amount), formatMoney(i.remaining),
+                                    STATUS_LABEL[i.status] || i.status,
+                                ])}
+                            />
+                        )}
+                    </Card>
+
+                    <Card className="p-5">
+                        <SectionTitle title={t('الدفعات المستلمة')} />
+                        {data.payments.length === 0 ? (
+                            <EmptyState message={t('لا توجد دفعات مسجلة')} />
+                        ) : (
+                            <Table
+                                headers={['التاريخ', 'المبلغ', 'الطريقة', 'رقم الوصل', 'المستلم']}
+                                rows={data.payments.map((p: any) => [
+                                    p.paid_at || '—', formatMoney(p.amount), p.method || '—',
+                                    p.receipt_no || '—', p.recorded_by_name || '—',
+                                ])}
+                            />
+                        )}
+                    </Card>
+                </div>
+            )}
+
+            {data && tab === 'finance' && !data.single && (
+                <div className="space-y-4">
+                    <PrintHeader
+                        title={t('كشف الديون')}
+                        subtitle={selectedClass ? classes.find((c) => c.id === selectedClass)?.name : t('كل الصفوف')}
+                    />
                     <Card className="p-5">
                         <SectionTitle
                             title={t('حالة السداد')}
-                            subtitle={`${data.students.filter((s: any) => !s.is_clear).length} طالب عليه مستحقات`}
+                            subtitle={`${data.totals?.debtors ?? data.students.filter((s: any) => !s.is_clear).length} طالب عليه مستحقات · إجمالي المتبقي ${formatMoney(data.totals?.outstanding)}`}
                         />
-                        <Table
-                            headers={['الطالب', 'الرقم', 'الصف', 'الإجمالي', 'المسدد', 'المتبقي', 'الحالة', 'هاتف ولي الأمر']}
-                            rows={data.students.map((s: any) => [
-                                s.name, s.uid, s.class_name,
-                                formatMoney(s.total_billed), formatMoney(s.total_paid), formatMoney(s.outstanding),
-                                s.payment_status, s.guardian_phone || '—',
-                            ])}
-                        />
+                        {data.students.length === 0 ? (
+                            <EmptyState message={t('لا يوجد طلاب مطابقون')} />
+                        ) : (
+                            <Table
+                                headers={['الطالب', 'الرقم', 'الصف', 'الإجمالي', 'المسدد', 'المتبقي', 'الحالة', 'هاتف ولي الأمر']}
+                                rows={data.students.map((s: any) => [
+                                    s.name, s.uid, s.class_name,
+                                    formatMoney(s.total_billed), formatMoney(s.total_paid), formatMoney(s.outstanding),
+                                    s.payment_status, s.guardian_phone || '—',
+                                ])}
+                            />
+                        )}
                     </Card>
                 </div>
             )}

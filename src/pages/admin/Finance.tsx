@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Banknote, CircleDollarSign, FileText, Phone, Plus, Receipt, Search, TrendingUp, Wallet,
 } from 'lucide-react';
@@ -8,7 +8,15 @@ import { isAdmin, useAuth } from '../../context/AuthContext';
 import {
     Badge, Card, EmptyState, ErrorBanner, Modal, SectionTitle, Spinner, StatCard, inputClass, labelClass,
 } from '../../components/ui';
+import { StudentPicker } from '../../components/StudentPicker';
 import { t } from '../../i18n';
+
+/**
+ * The student rows are fetched a page at a time. The screen used to load every
+ * student in the school and paint all of them, which is fine at twenty students
+ * and painful at several hundred.
+ */
+const STUDENT_PAGE_SIZE = 50;
 
 const CATEGORIES = ['قسط دراسي', 'رسوم تسجيل', 'كتب وقرطاسية', 'نقل مدرسي', 'زي مدرسي', 'نشاطات', 'أخرى'];
 const METHODS = ['نقدي', 'تحويل بنكي', 'محفظة إلكترونية', 'شيك'];
@@ -38,6 +46,10 @@ export const Finance: React.FC = () => {
     const [tab, setTab] = useState<'students' | 'invoices'>('students');
     const [overview, setOverview] = useState<Overview | null>(null);
     const [students, setStudents] = useState<StudentFinanceRow[]>([]);
+    const [studentsTotal, setStudentsTotal] = useState(0);
+    const [studentsNextCursor, setStudentsNextCursor] = useState<string | null>(null);
+    const [loadingMoreStudents, setLoadingMoreStudents] = useState(false);
+    const [listTotals, setListTotals] = useState<{ outstanding: number; debtors: number } | null>(null);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [invoicesNextCursor, setInvoicesNextCursor] = useState<string | null>(null);
     const [loadingMoreInvoices, setLoadingMoreInvoices] = useState(false);
@@ -67,33 +79,89 @@ export const Finance: React.FC = () => {
     const [invoicePayments, setInvoicePayments] = useState<Payment[]>([]);
     const [busy, setBusy] = useState(false);
 
-    const load = useCallback(async () => {
+    /** The filters live in the query string, so the server does the work. */
+    const studentsUrl = useCallback((offset?: string | null) => {
+        const params = new URLSearchParams({ limit: String(STUDENT_PAGE_SIZE) });
+        if (offset) params.set('after', offset);
+        if (search.trim()) params.set('search', search.trim());
+        if (classFilter) params.set('class_id', classFilter);
+        if (onlyDebtors) params.set('only_debtors', '1');
+        return `/api/admin/finance/students?${params}`;
+    }, [search, classFilter, onlyDebtors]);
+
+    const invoicesUrl = useCallback((offset?: string | null) => {
+        const params = new URLSearchParams({ limit: '25' });
+        if (offset) params.set('after', offset);
+        if (classFilter) params.set('class_id', classFilter);
+        return `/api/admin/invoices?${params}`;
+    }, [classFilter]);
+
+    const loadInvoices = useCallback(async () => {
+        const res = await api.get<{ data: Invoice[]; nextCursor: string | null }>(invoicesUrl());
+        setInvoices(res.data || []);
+        setInvoicesNextCursor(res.nextCursor || null);
+    }, [invoicesUrl]);
+
+    const loadStudents = useCallback(async () => {
+        const res = await api.get<{
+            students: StudentFinanceRow[];
+            total: number;
+            nextCursor: string | null;
+            totals: { outstanding: number; debtors: number };
+        }>(studentsUrl());
+        setStudents(res.students || []);
+        setStudentsTotal(res.total || 0);
+        setStudentsNextCursor(res.nextCursor || null);
+        setListTotals(res.totals || null);
+    }, [studentsUrl]);
+
+    /**
+     * A full refresh of the screen. Deliberately a plain function rather than a
+     * memoised one: it has to reload the student and invoice lists with the
+     * filters that are active *now*, and a callback frozen with an empty
+     * dependency list would quietly refetch using whatever the filters were
+     * when the page first mounted.
+     */
+    const load = async () => {
         setLoading(true);
         setError('');
         try {
-            const [ov, st, invRes, cls] = await Promise.all([
+            const [ov, cls] = await Promise.all([
                 api.get<Overview>('/api/admin/finance/summary'),
-                api.get<{ students: StudentFinanceRow[] }>('/api/admin/finance/students'),
-                api.get<{ data: Invoice[]; nextCursor: string | null }>('/api/admin/invoices'),
                 api.get<ClassData[]>('/api/classes'),
+                loadInvoices(),
+                loadStudents(),
             ]);
             setOverview(ov);
-            setStudents(st.students);
-            setInvoices(invRes.data || []);
-            setInvoicesNextCursor(invRes.nextCursor || null);
             setClasses(cls);
         } catch (err) {
             setError(err instanceof ApiError ? err.message : t('تعذر تحميل البيانات المالية'));
         } finally {
             setLoading(false);
         }
-    }, []);
+    };
+
+    const loadMoreStudents = async () => {
+        if (!studentsNextCursor || loadingMoreStudents) return;
+        setLoadingMoreStudents(true);
+        try {
+            const res = await api.get<{ students: StudentFinanceRow[]; nextCursor: string | null }>(
+                studentsUrl(studentsNextCursor)
+            );
+            setStudents((prev) => [...prev, ...(res.students || [])]);
+            setStudentsNextCursor(res.nextCursor || null);
+        } catch {
+            /* ignore */
+        } finally {
+            setLoadingMoreStudents(false);
+        }
+    };
 
     const loadMoreInvoices = async () => {
         if (!invoicesNextCursor || loadingMoreInvoices) return;
         setLoadingMoreInvoices(true);
         try {
-            const res = await api.get<{ data: Invoice[]; nextCursor: string | null }>(`/api/admin/invoices?after=${invoicesNextCursor}`);
+            const res = await api.get<{ data: Invoice[]; nextCursor: string | null }>(invoicesUrl(invoicesNextCursor));
             setInvoices((prev) => [...prev, ...(res.data || [])]);
             setInvoicesNextCursor(res.nextCursor || null);
         } catch {
@@ -103,17 +171,35 @@ export const Finance: React.FC = () => {
         }
     };
 
-    useEffect(() => { load(); }, [load]);
+    // Only on mount; every later refresh comes from an action or a filter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => { load(); }, []);
 
-    const visibleStudents = useMemo(() => {
-        const term = search.trim();
-        return students.filter((s) => {
-            if (onlyDebtors && s.is_clear) return false;
-            if (classFilter && s.class_id !== classFilter) return false;
-            if (!term) return true;
-            return s.name.includes(term) || s.uid.includes(term);
-        });
-    }, [students, search, classFilter, onlyDebtors]);
+    /**
+     * Whenever a filter settles, ask the server for a fresh first page. The
+     * delay keeps a fast typist from firing one request per keystroke.
+     */
+    const firstRender = useRef(true);
+    useEffect(() => {
+        if (firstRender.current) {
+            firstRender.current = false;
+            return; // the initial page already came from load()
+        }
+        const timer = setTimeout(() => { loadStudents().catch(() => {}); }, 300);
+        return () => clearTimeout(timer);
+    }, [loadStudents]);
+
+    // The invoice list only cares about the class, so it reloads on that alone.
+    // Its own guard: the students effect above has already flipped its flag by
+    // the time this one runs on the first render.
+    const firstInvoiceRender = useRef(true);
+    useEffect(() => {
+        if (firstInvoiceRender.current) {
+            firstInvoiceRender.current = false;
+            return;
+        }
+        loadInvoices().catch(() => {});
+    }, [loadInvoices]);
 
     const visibleInvoices = useMemo(() => {
         const term = search.trim();
@@ -127,6 +213,10 @@ export const Finance: React.FC = () => {
 
     const issueInvoice = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (issueForm.target === 'student' && !issueForm.student_id) {
+            setError(t('يرجى اختيار الطالب'));
+            return;
+        }
         setBusy(true);
         setError('');
         try {
@@ -290,11 +380,21 @@ export const Finance: React.FC = () => {
 
             {tab === 'students' ? (
                 <Card>
-                    {visibleStudents.length === 0 ? (
+                    <div className="px-4 pt-4 flex items-center justify-between gap-3">
+                        <p className="text-[11px] font-bold text-slate-400">
+                            {t('يعرض {shown} من {total} طالب', { shown: students.length, total: studentsTotal })}
+                        </p>
+                        {listTotals && listTotals.outstanding > 0 && (
+                            <p className="text-[11px] font-black text-rose-600">
+                                {t('متبقٍ على القائمة')} {formatMoney(listTotals.outstanding)}
+                            </p>
+                        )}
+                    </div>
+                    {students.length === 0 ? (
                         <EmptyState message={t('لا يوجد طلاب مطابقون للبحث')} />
                     ) : (
                         <div className="divide-y divide-slate-50">
-                            {visibleStudents.map((s) => (
+                            {students.map((s) => (
                                 <div key={s.student_id} className="p-4 flex items-center gap-3">
                                     <div
                                         className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
@@ -334,6 +434,17 @@ export const Finance: React.FC = () => {
                                     </div>
                                 </div>
                             ))}
+                        </div>
+                    )}
+                    {studentsNextCursor && (
+                        <div className="p-4 border-t border-slate-50 text-center">
+                            <button
+                                onClick={loadMoreStudents}
+                                disabled={loadingMoreStudents}
+                                className="px-5 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-black transition-all disabled:opacity-50"
+                            >
+                                {loadingMoreStudents ? t('جاري التحميل...') : t('تحميل المزيد')}
+                            </button>
                         </div>
                     )}
                 </Card>
@@ -419,20 +530,12 @@ export const Finance: React.FC = () => {
                     </div>
 
                     {issueForm.target === 'student' && (
-                        <div>
-                            <label className={labelClass}>{t('الطالب')} <span className="text-red-500">*</span></label>
-                            <select
-                                className={inputClass}
-                                value={issueForm.student_id}
-                                onChange={(e) => setIssueForm((f) => ({ ...f, student_id: e.target.value }))}
-                                required
-                            >
-                                <option value="">{t('-- اختر الطالب --')}</option>
-                                {students.map((s) => (
-                                    <option key={s.student_id} value={s.student_id}>{s.name} — {s.uid}</option>
-                                ))}
-                            </select>
-                        </div>
+                        <StudentPicker
+                            label={t('الطالب')}
+                            required
+                            value={issueForm.student_id}
+                            onChange={(id) => setIssueForm((f) => ({ ...f, student_id: id }))}
+                        />
                     )}
 
                     {issueForm.target === 'class' && (

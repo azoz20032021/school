@@ -327,6 +327,7 @@ router.post(
     }
 
     invalidate("students");
+    invalidate("finance");
     audit(req, {
       action: "approve",
       entity: "registration",

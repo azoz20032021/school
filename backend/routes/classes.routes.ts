@@ -261,6 +261,8 @@ router.post(
     batch.set(doc(enrollmentsRef), { student_id: studentId, class_id: classId, createdAt: serverTimestamp() });
     await batch.commit();
 
+    // The cached roster carries each student's class, so it is now stale.
+    invalidate("students");
     audit(req, {
       action: "enroll",
       entity: "enrollment",

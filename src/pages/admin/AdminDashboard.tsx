@@ -1,14 +1,19 @@
-import React, { useState, useEffect } from 'react';
-import { Users, BookOpen, Plus, ChevronRight, Trash2, ArrowRight, Printer, UserX } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Users, BookOpen, Plus, ChevronRight, Trash2, ArrowRight, Printer, UserX, Search } from 'lucide-react';
 import { ClassData, UserData } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { api, ApiError } from '../../lib/api';
+import { loadStudentRoster } from '../../components/StudentPicker';
 import { t } from '../../i18n';
 
 
 
+/** How many students to fetch and paint at a time. */
+const STUDENT_PAGE_SIZE = 25;
+
 export const AdminDashboard: React.FC = () => {
     const { user: currentUser } = useAuth();
+    const hasSearched = useRef(false);
     const canManageTeachers = currentUser?.role === 'admin';
     const canManageClasses = currentUser?.role === 'admin';
     const canManageStudents = currentUser?.role === 'admin';
@@ -45,6 +50,25 @@ export const AdminDashboard: React.FC = () => {
     const [loadingMoreTeachers, setLoadingMoreTeachers] = useState(false);
 
     /**
+     * The student list is paged and searched on the server. Painting every
+     * student at once is what made this screen heavy once the school passed a
+     * couple of hundred accounts, and it made finding one of them a scroll.
+     */
+    const [studentSearch, setStudentSearch] = useState('');
+    const [studentsTotal, setStudentsTotal] = useState(0);
+    const [studentsNextCursor, setStudentsNextCursor] = useState<string | null>(null);
+    const [loadingMoreStudents, setLoadingMoreStudents] = useState(false);
+    const [loadingStudents, setLoadingStudents] = useState(true);
+
+    /** The student query, with whatever search term is active right now. */
+    const studentsUrl = (offset?: string | null) => {
+        const params = new URLSearchParams({ limit: String(STUDENT_PAGE_SIZE) });
+        if (offset) params.set('after', offset);
+        if (studentSearch.trim()) params.set('search', studentSearch.trim());
+        return `/api/admin/students?${params}`;
+    };
+
+    /**
      * One pass over every list the dashboard shows. Each request is independent,
      * so they go out together and a single failure no longer leaves the whole
      * dashboard blank - the panels that did load still render.
@@ -57,7 +81,10 @@ export const AdminDashboard: React.FC = () => {
             assistantsData, subjectsData, absencesData, uidsData,
         ] = await Promise.all([
             settle(api.get<ClassData[]>('/api/classes'), []),
-            settle(api.get<{ data: any[]; nextCursor: string | null }>('/api/admin/students'), { data: [], nextCursor: null }),
+            settle(
+                api.get<{ data: any[]; nextCursor: string | null; total: number }>(studentsUrl()),
+                { data: [], nextCursor: null, total: 0 }
+            ),
             settle(api.get<{ data: UserData[]; nextCursor: string | null }>('/api/admin/teachers'), { data: [], nextCursor: null }),
             canManageTeachers ? settle(api.get<any[]>('/api/admin/assistants'), []) : Promise.resolve([]),
             settle(api.get<any[]>('/api/subjects'), []),
@@ -67,12 +94,58 @@ export const AdminDashboard: React.FC = () => {
 
         setClasses(classesData);
         setStudents(studentsRes.data || []);
+        setStudentsTotal(studentsRes.total ?? (studentsRes.data || []).length);
+        setStudentsNextCursor(studentsRes.nextCursor || null);
+        setLoadingStudents(false);
         setTeachers(teachersRes.data || []);
         setTeachersNextCursor(teachersRes.nextCursor || null);
         if (canManageTeachers) setAssistants(assistantsData);
         setAllSubjects(subjectsData);
         setDailyAbsences(absencesData);
         setValidUids(uidsData);
+    };
+
+    /**
+     * Re-run the student query whenever the search box settles. The delay keeps
+     * a fast typist from firing a request per keystroke.
+     */
+    useEffect(() => {
+        const term = studentSearch.trim();
+        // The first page arrives with fetchData; only a real search re-queries.
+        if (!term && !hasSearched.current) return;
+        hasSearched.current = true;
+
+        setLoadingStudents(true);
+        const timer = setTimeout(() => {
+            api.get<{ data: any[]; nextCursor: string | null; total: number }>(
+                `/api/admin/students?limit=${STUDENT_PAGE_SIZE}&search=${encodeURIComponent(term)}`
+            )
+                .then((res) => {
+                    setStudents(res.data || []);
+                    setStudentsTotal(res.total ?? 0);
+                    setStudentsNextCursor(res.nextCursor || null);
+                })
+                .catch(() => { /* the banner would fight with the search box */ })
+                .finally(() => setLoadingStudents(false));
+        }, 300);
+
+        return () => clearTimeout(timer);
+    }, [studentSearch]);
+
+    const handleLoadMoreStudents = async () => {
+        if (!studentsNextCursor || loadingMoreStudents) return;
+        setLoadingMoreStudents(true);
+        try {
+            const res = await api.get<{ data: any[]; nextCursor: string | null; total: number }>(
+                studentsUrl(studentsNextCursor)
+            );
+            setStudents(prev => [...prev, ...(res.data || [])]);
+            setStudentsNextCursor(res.nextCursor || null);
+        } catch {
+            /* ignore */
+        } finally {
+            setLoadingMoreStudents(false);
+        }
     };
 
     const handleLoadMoreTeachers = async () => {
@@ -156,6 +229,7 @@ export const AdminDashboard: React.FC = () => {
         if (confirm(t('هل أنت متأكد من حذف هذا الطالب بشكل نهائي؟ سيتم حذف تسجيلاته وإشعاراته أيضاً.'))) {
             try {
                 await api.del(`/api/admin/students/${id}`);
+                loadStudentRoster(true).catch(() => {});
                 fetchData();
             } catch (err) {
                 alert(err instanceof ApiError ? err.message : t('تعذر حذف الطالب'));
@@ -167,6 +241,7 @@ export const AdminDashboard: React.FC = () => {
         e.preventDefault();
         try {
             await api.post('/api/admin/students', newStudent);
+            loadStudentRoster(true).catch(() => {});
             setNewStudent({ name: '', username: '', password: '', uid: '' });
             setShowAddStudent(false);
             fetchData();
@@ -349,7 +424,7 @@ export const AdminDashboard: React.FC = () => {
                                 <Users className="w-5 h-5 text-blue-600" />
                             </div>
                             <p className="text-xs text-slate-500 font-bold">{t('إجمالي الطلاب')}</p>
-                            <p className="text-xl font-bold text-slate-800">{students.length}</p>
+                            <p className="text-xl font-bold text-slate-800">{studentsTotal}</p>
                         </div>
                         <button
                             onClick={() => setShowAbsencesToday(true)}
@@ -709,7 +784,12 @@ export const AdminDashboard: React.FC = () => {
 
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">
-                            <h3 className="font-bold text-slate-800">{t('جميع الطلاب المسجلين')}</h3>
+                            <h3 className="font-bold text-slate-800">
+                                {t('جميع الطلاب المسجلين')}
+                                <span className="text-slate-400 font-medium text-xs mr-2">
+                                    {t('({shown} من {total})', { shown: students.length, total: studentsTotal })}
+                                </span>
+                            </h3>
                             {canManageStudents && (
                                 <button
                                     onClick={() => setShowAddStudent(!showAddStudent)}
@@ -718,6 +798,16 @@ export const AdminDashboard: React.FC = () => {
                                     <Plus className="w-4 h-4" /> {showAddStudent ? t('إلغاء') : t('إضافة طالب')}
                                 </button>
                             )}
+                        </div>
+
+                        <div className="relative">
+                            <Search className="w-4 h-4 text-slate-400 absolute top-1/2 -translate-y-1/2 right-3.5 pointer-events-none" />
+                            <input
+                                value={studentSearch}
+                                onChange={e => setStudentSearch(e.target.value)}
+                                className="w-full pr-10 px-4 py-2.5 rounded-xl border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all bg-white"
+                                placeholder={t('ابحث باسم الطالب أو رقمه التعريفي')}
+                            />
                         </div>
 
                         {showAddStudent && (
@@ -763,14 +853,23 @@ export const AdminDashboard: React.FC = () => {
                         )}
 
                         <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm pb-20">
+                            {students.length === 0 && (
+                                <p className="p-8 text-center text-sm font-bold text-slate-400">
+                                    {loadingStudents
+                                        ? t('جاري التحميل...')
+                                        : studentSearch.trim()
+                                            ? t('لا يوجد طالب مطابق للبحث')
+                                            : t('لا يوجد طلاب مسجلون بعد')}
+                                </p>
+                            )}
                             {students.map(s => (
                                 <div key={s.id} className="p-4 border-b border-slate-50 space-y-3">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-3">
                                             <div className="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center text-blue-600 font-bold text-xs">
-                                                {s.name.charAt(0)}
+                                                {(s.name || '؟').charAt(0)}
                                             </div>
-                                            <p className="text-sm font-bold text-slate-800">{s.name}</p>
+                                            <p className="text-sm font-bold text-slate-800">{s.name || t('بدون اسم')}</p>
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <span className="text-[10px] font-mono bg-slate-100 px-2 py-1 rounded text-slate-600">{s.uid}</span>
@@ -809,6 +908,17 @@ export const AdminDashboard: React.FC = () => {
                                     )}
                                 </div>
                             ))}
+                            {studentsNextCursor && (
+                                <div className="p-4 text-center">
+                                    <button
+                                        onClick={handleLoadMoreStudents}
+                                        disabled={loadingMoreStudents}
+                                        className="px-5 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-black transition-all disabled:opacity-50"
+                                    >
+                                        {loadingMoreStudents ? t('جاري التحميل...') : t('تحميل المزيد')}
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </>

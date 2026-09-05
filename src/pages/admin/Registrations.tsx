@@ -5,6 +5,7 @@ import { api, ApiError, formatDateTime } from '../../lib/api';
 import {
     Badge, Card, EmptyState, ErrorBanner, Modal, Spinner, inputClass, labelClass,
 } from '../../components/ui';
+import { loadStudentRoster } from '../../components/StudentPicker';
 import { t } from '../../i18n';
 
 const TABS: { key: RegistrationStatus; label: string; icon: React.ElementType }[] = [
@@ -97,6 +98,8 @@ export const Registrations: React.FC = () => {
                 initial_fee_amount: initialFee ? Number(initialFee) : 0,
             });
             setViewing(null);
+            // The new account has to appear in the student pickers straight away.
+            loadStudentRoster(true).catch(() => {});
             await load(tab);
             alert(t('تمت الموافقة بنجاح. الرقم التعريفي للطالب: {uid}', { uid: res.uid }));
         } catch (err) {

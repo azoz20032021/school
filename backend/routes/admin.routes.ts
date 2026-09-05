@@ -21,15 +21,15 @@ import {
   enrollmentsRef,
   fetchAll,
   fetchIndexed,
-  fetchPage,
   notificationsRef,
   usersRef,
   validUidsRef,
 } from "../lib/db.js";
-import { hashPassword, requireAdmin, requireStaff, sanitizeUser } from "../lib/auth.js";
+import { hashPassword, requireAdmin, requireRole, requireStaff, sanitizeUser } from "../lib/auth.js";
 import { audit } from "../lib/audit.js";
 import { badRequest, forbidden, notFound, wrap } from "../lib/http.js";
 import { invalidate } from "../lib/cache.js";
+import { matchesStudent, normalizeArabic, paginate, studentRoster, teacherRoster } from "../lib/roster.js";
 import * as v from "../lib/validate.js";
 
 const router = Router();
@@ -41,20 +41,79 @@ const DEFAULT_PAGE_SIZE = 25;
  * Staff directory
  * ------------------------------------------------------------------ */
 
+/**
+ * The student list, paginated and searchable.
+ *
+ * `search` matches the name or the identifying number and tolerates the usual
+ * Arabic spelling variants, so a caller never has to load every student just to
+ * find one. `total` is the size of the whole filtered list — that, not the
+ * length of the current page, is what a counter should show.
+ */
 router.get(
   "/admin/students",
   requireStaff,
   wrap(async (req, res) => {
-    const pageSize = v.num(req.query.limit, "الحد", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE });
-    const cursor = req.query.after ? String(req.query.after) : null;
+    const pageSize = v.num(req.query.limit, "الحد", { min: 1, max: 200, optional: true, default: DEFAULT_PAGE_SIZE });
+    const offset = v.num(req.query.after ?? req.query.offset, "الإزاحة", {
+      min: 0,
+      max: 1_000_000,
+      optional: true,
+      default: 0,
+    });
+    const search = normalizeArabic(req.query.search);
+    const classId = req.query.class_id ? String(req.query.class_id) : null;
 
-    const { data, nextCursor } = await fetchPage<Record<string, any>>(
-      query(usersRef, where("role", "==", "student"), orderBy("name")),
-      pageSize,
-      cursor,
-      usersRef
+    const roster = await studentRoster();
+    const matched = roster.filter(
+      (s) => (!classId || s.class_id === classId) && matchesStudent(s, search)
     );
-    res.json({ data: data.map(sanitizeUser), nextCursor });
+
+    res.json(paginate(matched, offset, pageSize));
+  })
+);
+
+/**
+ * A light directory for the student pickers: id, name, number, class.
+ *
+ * Every "pick one student" control used to fill itself from a page of full
+ * student records, which both truncated the choices at the page size and
+ * shipped fields nobody displayed. A few hundred of these rows are a handful of
+ * kilobytes, so a picker can search the whole school in the browser without a
+ * request per keystroke.
+ *
+ * A teacher may open a report for a student they teach, so they get the same
+ * control — narrowed to the classes they are actually assigned to rather than
+ * the whole school.
+ *
+ * Declared before `/admin/students/:id` so "lookup" is not read as an id.
+ */
+router.get(
+  "/admin/students/lookup",
+  requireRole("admin", "assistant_admin", "teacher"),
+  wrap(async (req, res) => {
+    const roster = await studentRoster();
+
+    let visible = roster;
+    if (req.user!.role === "teacher") {
+      const teacherId = req.user!.id;
+      const [assigned, legacy] = await Promise.all([
+        fetchAll<Record<string, any>>(query(classesRef, where("teacher_ids", "array-contains", teacherId))),
+        fetchAll<Record<string, any>>(query(classesRef, where("teacher_id", "==", teacherId))),
+      ]);
+      const classIds = new Set([...assigned, ...legacy].map((c) => c.id));
+      visible = roster.filter((s) => s.class_id && classIds.has(s.class_id));
+    }
+
+    res.json(
+      visible.map((s) => ({
+        id: s.id,
+        name: s.name,
+        uid: s.uid,
+        class_id: s.class_id,
+        class_name: s.class_name,
+        guardian_phone: s.guardian_phone || "",
+      }))
+    );
   })
 );
 
@@ -188,16 +247,21 @@ router.get(
   "/admin/teachers",
   requireStaff,
   wrap(async (req, res) => {
-    const pageSize = v.num(req.query.limit, "الحد", { min: 1, max: 100, optional: true, default: DEFAULT_PAGE_SIZE });
-    const cursor = req.query.after ? String(req.query.after) : null;
+    const pageSize = v.num(req.query.limit, "الحد", { min: 1, max: 200, optional: true, default: DEFAULT_PAGE_SIZE });
+    const offset = v.num(req.query.after ?? req.query.offset, "الإزاحة", {
+      min: 0,
+      max: 1_000_000,
+      optional: true,
+      default: 0,
+    });
+    const search = normalizeArabic(req.query.search);
 
-    const { data, nextCursor } = await fetchPage<Record<string, any>>(
-      query(usersRef, where("role", "==", "teacher"), orderBy("name")),
-      pageSize,
-      cursor,
-      usersRef
-    );
-    res.json({ data: data.map(sanitizeUser), nextCursor });
+    const roster = await teacherRoster();
+    const matched = search
+      ? roster.filter((teacher) => normalizeArabic(teacher.name).includes(search))
+      : roster;
+
+    res.json(paginate(matched, offset, pageSize));
   })
 );
 
@@ -222,6 +286,7 @@ router.post(
       createdAt: serverTimestamp(),
     });
 
+    invalidate("teachers");
     audit(req, { action: "create", entity: "teacher", entityId: created.id, summary: `إضافة معلم ${name} (${uid})` });
     res.status(201).json({ success: true, id: created.id, uid });
   })
@@ -247,6 +312,7 @@ router.put(
     patch.updatedAt = serverTimestamp();
     await updateDoc(target, patch);
 
+    invalidate("teachers");
     audit(req, {
       action: "update",
       entity: "teacher",
@@ -296,6 +362,7 @@ router.delete(
 
     await deleteDoc(doc(db, "users", teacherId));
     invalidate("classes");
+    invalidate("teachers");
 
     audit(req, {
       action: "delete",
